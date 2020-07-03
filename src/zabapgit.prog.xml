@@ -4,15 +4,12 @@
   <asx:values>
    <PROGDIR>
     <NAME>ZABAPGIT</NAME>
-    <STATE>A</STATE>
-    <VARCL>X</VARCL>
     <DBAPL>S</DBAPL>
     <SUBC>1</SUBC>
     <FIXPT>X</FIXPT>
     <LDBNAME>D$S</LDBNAME>
     <UCCHECK>X</UCCHECK>
    </PROGDIR>
-   <DYNPROS/>
    <TPOOL>
     <item>
      <ID>R</ID>

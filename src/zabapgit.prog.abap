@@ -2,9 +2,6 @@ REPORT zabapgit LINE-SIZE 100.
 
 * See http://www.abapgit.org
 
-CONSTANTS: gc_xml_version  TYPE string VALUE 'v1.0.0',      "#EC NOTEXT
-           gc_abap_version TYPE string VALUE 'v1.33.3'.     "#EC NOTEXT
-
 ********************************************************************************
 * The MIT License (MIT)
 *
@@ -33,58 +30,27 @@ SELECTION-SCREEN BEGIN OF SCREEN 1001.
 * dummy for triggering screen on Java SAP GUI
 SELECTION-SCREEN END OF SCREEN 1001.
 
+TABLES sscrfields.
+
 INCLUDE zabapgit_password_dialog. " !!! Contains SELECTION SCREEN
 
-INCLUDE zabapgit_definitions.
-INCLUDE zabapgit_macros.
-INCLUDE zabapgit_exceptions.
-INCLUDE zabapgit_zlib.
-INCLUDE zabapgit_html.
-INCLUDE zabapgit_util.
-INCLUDE zabapgit_xml.
+* create class ZCL_ABAPGIT_AUTH_EXIT implementing ZIF_ABAPGIT_AUTH in following include,
+* if using the development version of abapGit create a global class instead
+* place the object in a different package than ZABAPGIT
+INCLUDE zabapgit_authorizations_exit IF FOUND.
 
-INCLUDE zabapgit_app.              " Some deferred definitions here
-INCLUDE zabapgit_persistence_old.
-INCLUDE zabapgit_dot_abapgit.
-INCLUDE zabapgit_persistence.
-INCLUDE zabapgit_sap_package.
-INCLUDE zabapgit_folder_logic.
-INCLUDE zabapgit_requirements.
+* create class ZCL_ABAPGIT_USER_EXIT implementing ZIF_ABAPGIT_EXIT in following include,
+* if using the development version of abapGit create a global class instead
+* place the object in a different package than ZABAPGIT
+INCLUDE zabapgit_user_exit IF FOUND.
 
-INCLUDE zabapgit_stage.
-INCLUDE zabapgit_git_helpers.
-INCLUDE zabapgit_repo.
-INCLUDE zabapgit_stage_logic.
-INCLUDE zabapgit_2fa.
-INCLUDE zabapgit_http.
-INCLUDE zabapgit_git.
-INCLUDE zabapgit_objects.
-INCLUDE zabapgit_tadir.
-INCLUDE zabapgit_file_status.
-INCLUDE zabapgit_popups.
-INCLUDE zabapgit_zip.
-INCLUDE zabapgit_objects_impl.
-
-INCLUDE zabapgit_object_serializing.  " All serializing classes here
-
-INCLUDE zabapgit_repo_impl.
-INCLUDE zabapgit_background.
-INCLUDE zabapgit_transport.
-
-INCLUDE zabapgit_services.            " All services here
-INCLUDE zabapgit_gui_asset_manager.
-INCLUDE zabapgit_gui_pages.           " All GUI pages here
 INCLUDE zabapgit_gui_pages_userexit IF FOUND.
-INCLUDE zabapgit_gui_router.
-INCLUDE zabapgit_gui.
 
-INCLUDE zabapgit_app_impl.
-INCLUDE zabapgit_unit_test.
-INCLUDE zabapgit_migrations.          " Data migration routines
 INCLUDE zabapgit_forms.
 
 **********************************************************************
 INITIALIZATION.
+  PERFORM remove_toolbar USING '1001'. " Remove toolbar on html screen
   lcl_password_dialog=>on_screen_init( ).
 
 START-OF-SELECTION.
@@ -92,7 +58,7 @@ START-OF-SELECTION.
 
 * Hide Execute button from screen
 AT SELECTION-SCREEN OUTPUT.
-  IF sy-dynnr = lcl_password_dialog=>dynnr.
+  IF sy-dynnr = lcl_password_dialog=>c_dynnr.
     lcl_password_dialog=>on_screen_output( ).
   ELSE.
     PERFORM output.
@@ -103,6 +69,6 @@ AT SELECTION-SCREEN ON EXIT-COMMAND.
   PERFORM exit.
 
 AT SELECTION-SCREEN.
-  IF sy-dynnr = lcl_password_dialog=>dynnr.
+  IF sy-dynnr = lcl_password_dialog=>c_dynnr.
     lcl_password_dialog=>on_screen_event( sscrfields-ucomm ).
   ENDIF.
