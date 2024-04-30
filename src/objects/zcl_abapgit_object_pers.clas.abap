@@ -2,13 +2,17 @@ CLASS zcl_abapgit_object_pers DEFINITION PUBLIC INHERITING FROM zcl_abapgit_obje
 
   PUBLIC SECTION.
     INTERFACES zif_abapgit_object.
-    ALIASES mo_files FOR zif_abapgit_object~mo_files.
-    METHODS:
-      constructor
-        IMPORTING
-          is_item     TYPE zif_abapgit_definitions=>ty_item
-          iv_language TYPE spras.
 
+    METHODS constructor
+      IMPORTING
+        !is_item        TYPE zif_abapgit_definitions=>ty_item
+        !iv_language    TYPE spras
+        !io_files       TYPE REF TO zcl_abapgit_objects_files OPTIONAL
+        !io_i18n_params TYPE REF TO zcl_abapgit_i18n_params OPTIONAL
+      RAISING
+        zcx_abapgit_exception.
+
+  PROTECTED SECTION.
   PRIVATE SECTION.
     TYPES:
       BEGIN OF ty_personalization_object,
@@ -35,19 +39,49 @@ ENDCLASS.
 
 CLASS zcl_abapgit_object_pers IMPLEMENTATION.
 
+
   METHOD constructor.
 
-    super->constructor( is_item     = is_item
-                        iv_language = iv_language ).
-
+    super->constructor(
+      is_item        = is_item
+      iv_language    = iv_language
+      io_files       = io_files
+      io_i18n_params = io_i18n_params ).
 
     mv_pers_key = ms_item-obj_name.
 
   ENDMETHOD.
 
 
+  METHOD get_personalization_object.
+
+    CREATE OBJECT ro_personalization_object
+      EXPORTING
+        p_create                = iv_create
+        p_pers_key              = mv_pers_key
+        p_view_only             = iv_view_only
+      EXCEPTIONS
+        pers_key_already_exists = 1
+        pers_key_does_not_exist = 2
+        transport_view_only     = 3
+        transport_canceled      = 4
+        OTHERS                  = 5.
+
+    IF sy-subrc <> 0.
+      zcx_abapgit_exception=>raise_t100( ).
+    ENDIF.
+
+  ENDMETHOD.
+
+
   METHOD zif_abapgit_object~changed_by.
-    rv_user = c_user_unknown.
+
+    SELECT SINGLE author FROM spers_reg INTO rv_user
+      WHERE pers_key = ms_item-obj_name.
+    IF sy-subrc <> 0.
+      rv_user = c_user_unknown.
+    ENDIF.
+
   ENDMETHOD.
 
 
@@ -127,6 +161,11 @@ CLASS zcl_abapgit_object_pers IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD zif_abapgit_object~get_deserialize_order.
+    RETURN.
+  ENDMETHOD.
+
+
   METHOD zif_abapgit_object~get_deserialize_steps.
     APPEND zif_abapgit_object=>gc_step_id-late TO rt_steps.
   ENDMETHOD.
@@ -134,9 +173,6 @@ CLASS zcl_abapgit_object_pers IMPLEMENTATION.
 
   METHOD zif_abapgit_object~get_metadata.
     rs_metadata = get_metadata( ).
-
-    rs_metadata-delete_tadir = abap_true.
-    rs_metadata-late_deser   = abap_true.
   ENDMETHOD.
 
 
@@ -148,7 +184,7 @@ CLASS zcl_abapgit_object_pers IMPLEMENTATION.
   METHOD zif_abapgit_object~is_locked.
 
     " There's no object specific locking. Just a global one.
-    rv_is_locked = exists_a_lock_entry_for( iv_lock_object = 'E_SPERSREG' ).
+    rv_is_locked = exists_a_lock_entry_for( 'E_SPERSREG' ).
 
   ENDMETHOD.
 
@@ -173,22 +209,22 @@ CLASS zcl_abapgit_object_pers IMPLEMENTATION.
     ls_bcdata-fval = '=PERSDISPLAY'.
     APPEND ls_bcdata TO lt_bcdata.
 
-    CALL FUNCTION 'ABAP4_CALL_TRANSACTION'
-      STARTING NEW TASK 'GIT'
-      EXPORTING
-        tcode                   = 'PERSREG'
-        mode_val                = 'E'
-      TABLES
-        using_tab               = lt_bcdata
-      EXCEPTIONS
-        call_transaction_denied = 1
-        tcode_invalid           = 2
-        OTHERS                  = 3.
+    zcl_abapgit_objects_factory=>get_gui_jumper( )->jump_batch_input(
+      iv_tcode   = 'PERSREG'
+      it_bdcdata = lt_bcdata ).
 
-    IF sy-subrc <> 0.
-      zcx_abapgit_exception=>raise( |error from ABAP4_CALL_TRANSACTION, PERSREG. SUBRC= {  sy-subrc }| ).
-    ENDIF.
+    rv_exit = abap_true.
 
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_filename_to_object.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_object_to_filename.
+    RETURN.
   ENDMETHOD.
 
 
@@ -214,26 +250,4 @@ CLASS zcl_abapgit_object_pers IMPLEMENTATION.
                  ig_data = ls_personalization_object ).
 
   ENDMETHOD.
-
-
-  METHOD get_personalization_object.
-
-    CREATE OBJECT ro_personalization_object
-      EXPORTING
-        p_create                = iv_create
-        p_pers_key              = mv_pers_key
-        p_view_only             = iv_view_only
-      EXCEPTIONS
-        pers_key_already_exists = 1
-        pers_key_does_not_exist = 2
-        transport_view_only     = 3
-        transport_canceled      = 4
-        OTHERS                  = 5.
-
-    IF sy-subrc <> 0.
-      zcx_abapgit_exception=>raise_t100( ).
-    ENDIF.
-
-  ENDMETHOD.
-
 ENDCLASS.

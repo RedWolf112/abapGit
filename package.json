@@ -1,19 +1,35 @@
 {
   "license": "MIT",
+  "private": true,
   "scripts": {
     "test": "npm run eslint && npm run abaplint",
-    "merge": "abapmerge -f src/zabapgit.prog.abap -c zabapgit_full > zabapgit.abap",
-    "merge.ci": "cp zabapgit.abap ci/zabapgit_full.prog.abap && cd ci && abaplint && cd ..",
-    "abaplint": "abaplint",
+    "merge": "abapmerge -f src/zabapgit.prog.abap -c zabapgit_standalone -o zabapgit.abap",
+    "merge.ci": "cp zabapgit.abap ci/zabapgit_standalone.prog.abap && cd ci && abaplint --format codeframe && cd ..",
+    "build": "rm -rf output && abap_transpile test/abap_transpile.json",
+    "unit": "npm run build && echo RUNNING && node output/index.mjs",
+    "coverage": "npm run unit && c8 node output/index.mjs && c8 report --reporter=html",
+    "integration": "rm -rf output && cp test/abap_transpile.json test/abap_transpile_int.json && sed -i 's/src,deps/test\\/src,src,deps/g' test/abap_transpile_int.json && abap_transpile test/abap_transpile_int.json && echo RUNNING && node output/index.mjs",
+    "abaplint": "abaplint --format codeframe",
     "eslint": "eslint src"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/larshp/abapGit.git"
+    "url": "git+https://github.com/abapGit/abapGit.git"
+  },
+  "c8": {
+    "all": true,
+    "src": [
+      "src"
+    ]
   },
   "devDependencies": {
-    "@abaplint/cli": "^2.37.2",
-    "abapmerge": "^0.14.1",
-    "eslint": "^7.3.1"
+    "@abaplint/cli": "^2.106.8",
+    "@abaplint/database-sqlite": "^2.8.0",
+    "@abaplint/runtime": "^2.8.24",
+    "@abaplint/transpiler-cli": "^2.8.24",
+    "globals": "^15.0.0",
+    "abapmerge": "^0.16.0",
+    "c8": "^9.1.0",
+    "eslint": "^9.1.0"
   }
 }

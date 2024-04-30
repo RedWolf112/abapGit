@@ -1,11 +1,18 @@
-CLASS zcl_abapgit_object_wdyn DEFINITION PUBLIC INHERITING FROM zcl_abapgit_objects_super FINAL.
+CLASS zcl_abapgit_object_wdyn DEFINITION
+  PUBLIC
+  INHERITING FROM zcl_abapgit_objects_super
+  FINAL
+  CREATE PUBLIC .
 
   PUBLIC SECTION.
-    INTERFACES zif_abapgit_object.
-    ALIASES mo_files FOR zif_abapgit_object~mo_files.
 
+    INTERFACES zif_abapgit_object .
   PROTECTED SECTION.
   PRIVATE SECTION.
+
+    CONSTANTS c_longtext_id_wc TYPE dokil-id VALUE 'WC' ##NO_TEXT.
+    CONSTANTS c_longtext_id_wd TYPE dokil-id VALUE 'WD' ##NO_TEXT.
+    CONSTANTS c_longtext_name_wc TYPE string VALUE 'LONGTEXTS_WC' ##NO_TEXT.
 
     DATA:
       mt_components TYPE TABLE OF wdy_ctlr_compo_vrs,
@@ -63,7 +70,10 @@ CLASS zcl_abapgit_object_wdyn DEFINITION PUBLIC INHERITING FROM zcl_abapgit_obje
       add_fm_exception
         IMPORTING iv_name      TYPE string
                   iv_value     TYPE i
-        CHANGING  ct_exception TYPE abap_func_excpbind_tab.
+        CHANGING  ct_exception TYPE abap_func_excpbind_tab,
+      add_with_inactive_parts
+        RAISING
+          zcx_abapgit_exception.
 
 ENDCLASS.
 
@@ -110,9 +120,43 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD add_with_inactive_parts.
+
+    DATA:
+      lv_obj_name TYPE trobj_name,
+      lv_object   TYPE trobjtype,
+      lt_objects  TYPE dwinactiv_tab.
+
+    FIELD-SYMBOLS: <ls_object> LIKE LINE OF lt_objects.
+
+    lv_obj_name = ms_item-obj_name.
+    lv_object = ms_item-obj_type.
+
+    CALL FUNCTION 'RS_INACTIVE_OBJECTS_IN_OBJECT'
+      EXPORTING
+        obj_name         = lv_obj_name
+        object           = lv_object
+      TABLES
+        inactive_objects = lt_objects
+      EXCEPTIONS
+        object_not_found = 1
+        OTHERS           = 2.
+    IF sy-subrc <> 0.
+      zcx_abapgit_exception=>raise_t100( ).
+    ENDIF.
+
+    LOOP AT lt_objects ASSIGNING <ls_object>.
+      zcl_abapgit_objects_activation=>add( iv_type = <ls_object>-object
+                                           iv_name = <ls_object>-obj_name ).
+    ENDLOOP.
+
+  ENDMETHOD.
+
+
   METHOD delta_controller.
 
     DATA: li_controller TYPE REF TO if_wdy_md_controller,
+          lx_error      TYPE REF TO cx_wdy_md_exception,
           lv_found      TYPE abap_bool,
           ls_key        TYPE wdy_md_controller_key,
           ls_obj_new    TYPE svrs2_versionable_object,
@@ -140,8 +184,8 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
                 controller_type = is_controller-definition-controller_type ).
           li_controller->save_to_database( ).
           li_controller->unlock( ).
-        CATCH cx_wdy_md_exception.
-          zcx_abapgit_exception=>raise( 'error creating dummy controller' ).
+        CATCH cx_wdy_md_exception INTO lx_error.
+          zcx_abapgit_exception=>raise( |Error creating dummy controller: { lx_error->get_text( ) }| ).
       ENDTRY.
     ENDIF.
 
@@ -213,6 +257,7 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
           lv_found     TYPE abap_bool,
           ls_obj_new   TYPE svrs2_versionable_object,
           li_component TYPE REF TO if_wdy_md_component,
+          lx_error     TYPE REF TO cx_wdy_md_exception,
           ls_obj_old   TYPE svrs2_versionable_object.
 
 
@@ -230,8 +275,8 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
               devclass  = iv_package ).
           li_component->save_to_database( ).
           li_component->unlock( ).
-        CATCH cx_wdy_md_exception.
-          zcx_abapgit_exception=>raise( 'error creating dummy component' ).
+        CATCH cx_wdy_md_exception INTO lx_error.
+          zcx_abapgit_exception=>raise( |Error creating dummy component: { lx_error->get_text( ) }| ).
       ENDTRY.
     ENDIF.
 
@@ -270,6 +315,7 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
           ls_obj_new TYPE svrs2_versionable_object,
           ls_obj_old TYPE svrs2_versionable_object,
           lv_found   TYPE abap_bool,
+          lx_error   TYPE REF TO cx_wdy_md_exception,
           li_view    TYPE REF TO if_wdy_md_abstract_view.
 
     FIELD-SYMBOLS: <ls_def> LIKE LINE OF ls_obj_old-wdyv-defin.
@@ -289,8 +335,8 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
                       type           = is_view-definition-type ).
           li_view->save_to_database( ).
           li_view->unlock( ).
-        CATCH cx_wdy_md_exception.
-          zcx_abapgit_exception=>raise( 'error creating dummy view' ).
+        CATCH cx_wdy_md_exception INTO lx_error.
+          zcx_abapgit_exception=>raise( |Error creating dummy view: { lx_error->get_text( ) }| ).
       ENDTRY.
     ENDIF.
 
@@ -412,8 +458,28 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
       ENDIF.
     ENDLOOP.
 
+    SORT rs_component-view_metadata BY
+      definition-component_name ASCENDING
+      definition-view_name ASCENDING.
+
     LOOP AT rs_component-view_metadata ASSIGNING <ls_view>.
+      SORT <ls_view>-descriptions.
+      SORT <ls_view>-view_containers.
+      SORT <ls_view>-view_container_texts.
+      SORT <ls_view>-iobound_plugs.
+      SORT <ls_view>-iobound_plug_texts.
+      SORT <ls_view>-plug_parameters.
+      SORT <ls_view>-plug_parameter_texts.
       SORT <ls_view>-ui_elements.
+      SORT <ls_view>-ui_context_bindings.
+      SORT <ls_view>-ui_event_bindings.
+      SORT <ls_view>-ui_ddic_bindings.
+      SORT <ls_view>-ui_properties.
+      SORT <ls_view>-navigation_links.
+      SORT <ls_view>-navigation_target_refs.
+      SORT <ls_view>-vsh_nodes.
+      SORT <ls_view>-vsh_placeholders.
+      SORT <ls_view>-viewset_properties.
     ENDLOOP.
 
     SORT mt_components BY
@@ -644,6 +710,7 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
 
     DATA: ls_key    TYPE wdy_controller_key,
           lv_corrnr TYPE trkorr,
+          lx_error  TYPE REF TO cx_wdy_md_exception,
           ls_delta  TYPE svrs2_xversionable_object.
 
 
@@ -658,8 +725,8 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
             delta          = ls_delta-wdyc
           CHANGING
             corrnr         = lv_corrnr ).
-      CATCH cx_wdy_md_exception.
-        zcx_abapgit_exception=>raise( 'error recovering version of controller' ).
+      CATCH cx_wdy_md_exception INTO lx_error.
+        zcx_abapgit_exception=>raise( |Error recovering version of controller: { lx_error->get_text( ) }| ).
     ENDTRY.
 
   ENDMETHOD.
@@ -669,6 +736,7 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
 
     DATA: ls_key    TYPE wdy_md_component_key,
           lv_corrnr TYPE trkorr,
+          lx_error  TYPE REF TO cx_wdy_md_exception,
           ls_delta  TYPE svrs2_xversionable_object.
 
 
@@ -685,8 +753,8 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
             delta         = ls_delta-wdyd
           CHANGING
             corrnr        = lv_corrnr ).
-      CATCH cx_wdy_md_exception.
-        zcx_abapgit_exception=>raise( 'error recovering version of component' ).
+      CATCH cx_wdy_md_exception INTO lx_error.
+        zcx_abapgit_exception=>raise( |Error recovering version of component: { lx_error->get_text( ) }| ).
     ENDTRY.
 
   ENDMETHOD.
@@ -696,6 +764,7 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
 
     DATA: ls_key    TYPE wdy_md_view_key,
           lv_corrnr TYPE trkorr,
+          lx_error  TYPE REF TO cx_wdy_md_exception,
           ls_delta  TYPE svrs2_xversionable_object.
 
 
@@ -710,15 +779,19 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
             delta    = ls_delta-wdyv
           CHANGING
             corrnr   = lv_corrnr ).
-      CATCH cx_wdy_md_exception.
-        zcx_abapgit_exception=>raise( 'error recovering version of abstract view' ).
+      CATCH cx_wdy_md_exception INTO lx_error.
+        zcx_abapgit_exception=>raise( |Error recovering version of abstract view: { lx_error->get_text( ) }| ).
     ENDTRY.
 
   ENDMETHOD.
 
 
   METHOD zif_abapgit_object~changed_by.
-    rv_user = c_user_unknown. " todo
+    SELECT SINGLE changedby FROM wdy_component INTO rv_user
+      WHERE component_name = ms_item-obj_name AND version = 'A'.
+    IF sy-subrc <> 0.
+      rv_user = c_user_unknown.
+    ENDIF.
   ENDMETHOD.
 
 
@@ -748,12 +821,11 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
 
   METHOD zif_abapgit_object~deserialize.
 
-    DATA: lt_sotr      TYPE zif_abapgit_definitions=>ty_sotr_tt,
-          ls_component TYPE wdy_component_metadata.
+    DATA: ls_component   TYPE wdy_component_metadata,
+          ls_description TYPE wdy_ext_ctx_map.
 
     FIELD-SYMBOLS: <ls_view>       LIKE LINE OF ls_component-view_metadata,
                    <ls_controller> LIKE LINE OF ls_component-ctlr_metadata.
-
 
     io_xml->read( EXPORTING iv_name = 'COMPONENT'
                   CHANGING cg_data = ls_component ).
@@ -778,15 +850,23 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
       recover_view( <ls_view> ).
     ENDLOOP.
 
-    io_xml->read( EXPORTING iv_name = 'SOTR'
-                  CHANGING cg_data = lt_sotr ).
-
-    IF lines( lt_sotr ) > 0.
-      zcl_abapgit_sotr_handler=>create_sotr( it_sotr    = lt_sotr
-                                             iv_package = iv_package ).
+    READ TABLE ls_component-comp_metadata-descriptions INTO ls_description INDEX 1.
+    IF sy-subrc = 0.
+      zcl_abapgit_sotr_handler=>create_sotr(
+        iv_package = iv_package
+        io_xml     = io_xml ).
     ENDIF.
 
-    zcl_abapgit_objects_activation=>add_item( ms_item ).
+    add_with_inactive_parts( ).
+
+    deserialize_longtexts(
+      ii_xml         = io_xml
+      iv_longtext_id = c_longtext_id_wd ).
+
+    deserialize_longtexts(
+      ii_xml           = io_xml
+      iv_longtext_id   = c_longtext_id_wc
+      iv_longtext_name = c_longtext_name_wc ).
 
   ENDMETHOD.
 
@@ -798,14 +878,18 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
 
     SELECT SINGLE component_name FROM wdy_component
       INTO lv_component_name
-      WHERE component_name = ms_item-obj_name
-      AND version = 'A'.                                "#EC CI_GENBUFF
+      WHERE component_name = ms_item-obj_name.          "#EC CI_GENBUFF
     rv_bool = boolc( sy-subrc = 0 ).
 
   ENDMETHOD.
 
 
   METHOD zif_abapgit_object~get_comparator.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~get_deserialize_order.
     RETURN.
   ENDMETHOD.
 
@@ -831,23 +915,28 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~jump.
+    " Covered by ZCL_ABAPGIT_OBJECTS=>JUMP
+  ENDMETHOD.
 
-    CALL FUNCTION 'RS_TOOL_ACCESS'
-      EXPORTING
-        operation     = 'SHOW'
-        object_name   = ms_item-obj_name
-        object_type   = ms_item-obj_type
-        in_new_window = abap_true.
 
+  METHOD zif_abapgit_object~map_filename_to_object.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_object_to_filename.
+    RETURN.
   ENDMETHOD.
 
 
   METHOD zif_abapgit_object~serialize.
 
     DATA: ls_component   TYPE wdy_component_metadata,
-          lt_sotr        TYPE zif_abapgit_definitions=>ty_sotr_tt,
-          ls_description TYPE wdy_ext_ctx_map,
-          lv_object_name TYPE sobj_name.
+          ls_comp        TYPE wdy_ctlr_compo_vrs,
+          lv_object      TYPE dokil-object,
+          lt_object      TYPE STANDARD TABLE OF dokil-object WITH DEFAULT KEY,
+          lt_dokil       TYPE STANDARD TABLE OF dokil WITH DEFAULT KEY,
+          ls_description TYPE wdy_ext_ctx_map.
 
     ls_component = read( ).
 
@@ -860,12 +949,42 @@ CLASS ZCL_ABAPGIT_OBJECT_WDYN IMPLEMENTATION.
 
     READ TABLE ls_component-comp_metadata-descriptions INTO ls_description INDEX 1.
     IF sy-subrc = 0.
-      lv_object_name = ls_description-component_name.
-      lt_sotr = zcl_abapgit_sotr_handler=>read_sotr_wda( lv_object_name ).
-      IF lines( lt_sotr ) > 0.
-        io_xml->add( iv_name = 'SOTR'
-                     ig_data = lt_sotr ).
+      zcl_abapgit_sotr_handler=>read_sotr(
+        iv_pgmid    = 'LIMU'
+        iv_object   = 'WDYV'
+        iv_obj_name = ms_item-obj_name
+        io_i18n_params = mo_i18n_params
+        io_xml      = io_xml ).
+    ENDIF.
+
+    serialize_longtexts(
+      ii_xml         = io_xml
+      iv_longtext_id = c_longtext_id_wd ).
+
+    LOOP AT mt_components INTO ls_comp.
+      lv_object    = ls_comp-component_name.
+      lv_object+30 = ls_comp-controller_name.
+      COLLECT lv_object INTO lt_object.
+    ENDLOOP.
+
+    IF lt_object IS NOT INITIAL.
+      IF mo_i18n_params->ms_params-main_language_only = abap_true.
+        SELECT * FROM dokil INTO TABLE lt_dokil
+          FOR ALL ENTRIES IN lt_object
+          WHERE id = c_longtext_id_wc AND object = lt_object-table_line AND masterlang = abap_true
+          ORDER BY PRIMARY KEY.
+      ELSE.
+        SELECT * FROM dokil INTO TABLE lt_dokil
+          FOR ALL ENTRIES IN lt_object
+          WHERE id = c_longtext_id_wc AND object = lt_object-table_line
+          ORDER BY PRIMARY KEY.
       ENDIF.
+
+      serialize_longtexts(
+        ii_xml           = io_xml
+        it_dokil         = lt_dokil
+        iv_longtext_id   = c_longtext_id_wc
+        iv_longtext_name = c_longtext_name_wc ).
     ENDIF.
 
   ENDMETHOD.

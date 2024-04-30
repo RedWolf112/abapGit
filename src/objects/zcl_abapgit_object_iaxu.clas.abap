@@ -39,7 +39,7 @@ ENDCLASS.
 
 
 
-CLASS ZCL_ABAPGIT_OBJECT_IAXU IMPLEMENTATION.
+CLASS zcl_abapgit_object_iaxu IMPLEMENTATION.
 
 
   METHOD read.
@@ -64,9 +64,9 @@ CLASS ZCL_ABAPGIT_OBJECT_IAXU IMPLEMENTATION.
 
     DATA: lo_xml_api TYPE REF TO object.
 
-    lo_xml_api = w3_api_create_new( is_attr = is_attr ).
+    lo_xml_api = w3_api_create_new( is_attr ).
 
-    w3_api_save( io_xml_api = lo_xml_api ).
+    w3_api_save( lo_xml_api ).
 
     w3_api_set_changeable( io_xml_api    = lo_xml_api
                            iv_changeable = abap_false ).
@@ -205,7 +205,7 @@ CLASS ZCL_ABAPGIT_OBJECT_IAXU IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~changed_by.
-    rv_user = c_user_unknown. " todo
+    rv_user = read( )-chname.
   ENDMETHOD.
 
 
@@ -222,9 +222,9 @@ CLASS ZCL_ABAPGIT_OBJECT_IAXU IMPLEMENTATION.
     w3_api_set_changeable( io_xml_api    = lo_xml_api
                            iv_changeable = abap_true ).
 
-    w3_api_delete( io_xml_api = lo_xml_api ).
+    w3_api_delete( lo_xml_api ).
 
-    w3_api_save( io_xml_api = lo_xml_api ).
+    w3_api_save( lo_xml_api ).
 
   ENDMETHOD.
 
@@ -240,10 +240,11 @@ CLASS ZCL_ABAPGIT_OBJECT_IAXU IMPLEMENTATION.
     ls_attr-devclass = iv_package.
 
     IF zif_abapgit_object~exists( ) = abap_true.
-      zif_abapgit_object~delete( iv_package ).
+      zif_abapgit_object~delete( iv_package   = iv_package
+                                 iv_transport = iv_transport ).
     ENDIF.
 
-    save( is_attr = ls_attr ).
+    save( ls_attr ).
 
   ENDMETHOD.
 
@@ -269,6 +270,11 @@ CLASS ZCL_ABAPGIT_OBJECT_IAXU IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD zif_abapgit_object~get_deserialize_order.
+    RETURN.
+  ENDMETHOD.
+
+
   METHOD zif_abapgit_object~get_deserialize_steps.
     APPEND zif_abapgit_object=>gc_step_id-abap TO rt_steps.
   ENDMETHOD.
@@ -290,13 +296,17 @@ CLASS ZCL_ABAPGIT_OBJECT_IAXU IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~jump.
+    " Covered by ZCL_ABAPGIT_OBJECTS=>JUMP
+  ENDMETHOD.
 
-    CALL FUNCTION 'RS_TOOL_ACCESS'
-      EXPORTING
-        operation   = 'SHOW'
-        object_name = ms_item-obj_name
-        object_type = ms_item-obj_type.
 
+  METHOD zif_abapgit_object~map_filename_to_object.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_object_to_filename.
+    RETURN.
   ENDMETHOD.
 
 

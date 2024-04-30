@@ -2,12 +2,15 @@ CLASS zcl_abapgit_object_xinx DEFINITION PUBLIC INHERITING FROM zcl_abapgit_obje
 
   PUBLIC SECTION.
     INTERFACES zif_abapgit_object.
-    ALIASES mo_files FOR zif_abapgit_object~mo_files.
-    METHODS:
-      constructor
-        IMPORTING
-          is_item     TYPE zif_abapgit_definitions=>ty_item
-          iv_language TYPE spras.
+
+    METHODS constructor
+      IMPORTING
+        !is_item        TYPE zif_abapgit_definitions=>ty_item
+        !iv_language    TYPE spras
+        !io_files       TYPE REF TO zcl_abapgit_objects_files OPTIONAL
+        !io_i18n_params TYPE REF TO zcl_abapgit_i18n_params OPTIONAL
+      RAISING
+        zcx_abapgit_exception.
 
   PROTECTED SECTION.
   PRIVATE SECTION.
@@ -20,6 +23,8 @@ CLASS zcl_abapgit_object_xinx DEFINITION PUBLIC INHERITING FROM zcl_abapgit_obje
 
     CONSTANTS:
       c_objtype_extension_index   TYPE trobjtype VALUE 'XINX'.
+
+    CONSTANTS c_longtext_id_xinx TYPE dokil-id VALUE 'XI'.
 
     DATA:
       mv_name TYPE ddobjname,
@@ -40,8 +45,11 @@ CLASS zcl_abapgit_object_xinx IMPLEMENTATION.
 
   METHOD constructor.
 
-    super->constructor( is_item     = is_item
-                        iv_language = iv_language ).
+    super->constructor(
+      is_item        = is_item
+      iv_language    = iv_language
+      io_files       = io_files
+      io_i18n_params = io_i18n_params ).
 
     cl_wb_object_type=>get_key_components_from_id(
       EXPORTING
@@ -60,8 +68,49 @@ CLASS zcl_abapgit_object_xinx IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD xinx_delete_docu.
+
+    DATA: lv_docuid  TYPE dokhl-id,
+          lv_doctype TYPE dokhl-typ,
+          lv_docname TYPE dokhl-object.
+
+    lv_docname    = iv_objname.
+    lv_docname+30 = iv_id.
+    CALL FUNCTION 'INTERN_DD_DOCU_ID_MATCH'
+      EXPORTING
+        p_trobjtype  = c_objtype_extension_index
+      IMPORTING
+        p_docu_id    = lv_docuid
+        p_doctype    = lv_doctype
+      EXCEPTIONS
+        illegal_type = 1
+        OTHERS       = 2.
+
+    IF sy-subrc <> 0.
+      RETURN.
+    ENDIF.
+
+    CALL FUNCTION 'DOKU_DELETE_ALL'
+      EXPORTING
+        doku_id            = lv_docuid
+        doku_object        = lv_docname
+        doku_typ           = lv_doctype
+        suppress_authority = 'X'
+        suppress_enqueue   = 'X'
+        suppress_transport = 'X'
+      EXCEPTIONS
+        no_docu_found      = 1
+        OTHERS             = 2.
+
+  ENDMETHOD.
+
+
   METHOD zif_abapgit_object~changed_by.
-    rv_user = c_user_unknown. " todo
+    SELECT SINGLE as4user FROM dd12l INTO rv_user
+      WHERE sqltab = mv_name AND indexname = mv_id.
+    IF sy-subrc <> 0.
+      rv_user = c_user_unknown.
+    ENDIF.
   ENDMETHOD.
 
 
@@ -75,8 +124,7 @@ CLASS zcl_abapgit_object_xinx IMPLEMENTATION.
           lv_concname     TYPE rsdxx-objname,
           ls_transp_key   TYPE trkey,
           ls_e071         TYPE e071,
-          lv_clm_corrnum  TYPE e070-trkorr,
-          lv_message      TYPE string.
+          lv_clm_corrnum  TYPE e070-trkorr.
 
     CONCATENATE mv_name '-' mv_id INTO lv_concname.
     ls_enqueue-objtype = c_objtype_extension_index.
@@ -110,7 +158,7 @@ CLASS zcl_abapgit_object_xinx IMPLEMENTATION.
 
     IF sy-subrc <> 0.
       " & was not deleted (correction entry not possible or canceled)
-      MESSAGE s015(e2) WITH lv_concname INTO lv_message.
+      MESSAGE s015(e2) WITH lv_concname INTO zcx_abapgit_exception=>null.
       zcx_abapgit_exception=>raise_t100( ).
     ENDIF.
 
@@ -129,6 +177,7 @@ CLASS zcl_abapgit_object_xinx IMPLEMENTATION.
 
     lv_del_concname = ls_enqueue-objname.
     lv_del_concname+16 = ls_enqueue-secname.
+
     CALL FUNCTION 'DD_OBJ_DEL'
       EXPORTING
         object_name = lv_del_concname
@@ -154,11 +203,12 @@ CLASS zcl_abapgit_object_xinx IMPLEMENTATION.
 
     IF sy-subrc <> 0.
       " Internal error & in & (contact person in charge)
-      MESSAGE i008(e2) WITH 'DD_DD_TO_E071' 'RS_DD_INDX_DELETE' INTO lv_message.
+      MESSAGE i008(e2) WITH 'DD_DD_TO_E071' 'RS_DD_INDX_DELETE' INTO zcx_abapgit_exception=>null.
       zcx_abapgit_exception=>raise_t100( ).
     ENDIF.
 
     ls_e071-object = ls_enqueue-objtype.
+
     CALL FUNCTION 'RS_DELETE_FROM_WORKING_AREA'
       EXPORTING
         object                 = ls_e071-object
@@ -167,8 +217,8 @@ CLASS zcl_abapgit_object_xinx IMPLEMENTATION.
         actualize_working_area = 'X'.
 
     xinx_delete_docu(
-        iv_objname = mv_name
-        iv_id      = mv_id ).
+      iv_objname = mv_name
+      iv_id      = mv_id ).
 
     CALL FUNCTION 'RS_TREE_OBJECT_PLACEMENT'
       EXPORTING
@@ -208,6 +258,8 @@ CLASS zcl_abapgit_object_xinx IMPLEMENTATION.
 
     tadir_insert( iv_package ).
 
+    corr_insert( iv_package ).
+
     CALL FUNCTION 'DDIF_INDX_PUT'
       EXPORTING
         name              = mv_name
@@ -246,6 +298,9 @@ CLASS zcl_abapgit_object_xinx IMPLEMENTATION.
       zcx_abapgit_exception=>raise( |Cannot activate extension index { mv_id } of table { mv_name }| ).
     ENDIF.
 
+    deserialize_longtexts( ii_xml         = io_xml
+                           iv_longtext_id = c_longtext_id_xinx ).
+
   ENDMETHOD.
 
 
@@ -273,6 +328,11 @@ CLASS zcl_abapgit_object_xinx IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD zif_abapgit_object~get_deserialize_order.
+    RETURN.
+  ENDMETHOD.
+
+
   METHOD zif_abapgit_object~get_deserialize_steps.
     APPEND zif_abapgit_object=>gc_step_id-abap TO rt_steps.
   ENDMETHOD.
@@ -294,22 +354,17 @@ CLASS zcl_abapgit_object_xinx IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~jump.
+    " Covered by ZCL_ABAPGIT_OBJECTS=>JUMP
+  ENDMETHOD.
 
-    CALL FUNCTION 'RS_TOOL_ACCESS'
-      EXPORTING
-        operation           = 'SHOW'
-        object_name         = ms_item-obj_name
-        object_type         = ms_item-obj_type
-        in_new_window       = abap_true
-      EXCEPTIONS
-        not_executed        = 1
-        invalid_object_type = 2
-        OTHERS              = 3.
 
-    IF sy-subrc <> 0.
-      zcx_abapgit_exception=>raise( |Error from RS_TOOL_ACCESS { sy-subrc }| ).
-    ENDIF.
+  METHOD zif_abapgit_object~map_filename_to_object.
+    RETURN.
+  ENDMETHOD.
 
+
+  METHOD zif_abapgit_object~map_object_to_filename.
+    RETURN.
   ENDMETHOD.
 
 
@@ -341,42 +396,8 @@ CLASS zcl_abapgit_object_xinx IMPLEMENTATION.
     io_xml->add( iv_name = 'XINX'
                  ig_data = ls_extension_index ).
 
-  ENDMETHOD.
-
-  METHOD xinx_delete_docu.
-
-    DATA: lv_docuid  TYPE dokhl-id,
-          lv_doctype TYPE dokhl-typ,
-          lv_docname TYPE dokhl-object.
-
-    lv_docname    = iv_objname.
-    lv_docname+30 = iv_id.
-    CALL FUNCTION 'INTERN_DD_DOCU_ID_MATCH'
-      EXPORTING
-        p_trobjtype  = c_objtype_extension_index
-      IMPORTING
-        p_docu_id    = lv_docuid
-        p_doctype    = lv_doctype
-      EXCEPTIONS
-        illegal_type = 1
-        OTHERS       = 2.
-
-    IF sy-subrc <> 0.
-      RETURN.
-    ENDIF.
-
-    CALL FUNCTION 'DOKU_DELETE_ALL'
-      EXPORTING
-        doku_id            = lv_docuid
-        doku_object        = lv_docname
-        doku_typ           = lv_doctype
-        suppress_authority = 'X'
-        suppress_enqueue   = 'X'
-        suppress_transport = 'X'
-      EXCEPTIONS
-        no_docu_found      = 1
-        OTHERS             = 2.
+    serialize_longtexts( ii_xml         = io_xml
+                         iv_longtext_id = c_longtext_id_xinx ).
 
   ENDMETHOD.
-
 ENDCLASS.

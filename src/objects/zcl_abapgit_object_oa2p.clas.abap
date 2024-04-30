@@ -7,10 +7,15 @@ CLASS zcl_abapgit_object_oa2p DEFINITION
   PUBLIC SECTION.
 
     INTERFACES zif_abapgit_object .
+
     METHODS constructor
       IMPORTING
-        is_item     TYPE zif_abapgit_definitions=>ty_item
-        iv_language TYPE spras.
+        !is_item        TYPE zif_abapgit_definitions=>ty_item
+        !iv_language    TYPE spras
+        !io_files       TYPE REF TO zcl_abapgit_objects_files OPTIONAL
+        !io_i18n_params TYPE REF TO zcl_abapgit_i18n_params OPTIONAL
+      RAISING
+        zcx_abapgit_exception.
 
   PROTECTED SECTION.
   PRIVATE SECTION.
@@ -22,10 +27,14 @@ ENDCLASS.
 
 CLASS zcl_abapgit_object_oa2p IMPLEMENTATION.
 
+
   METHOD constructor.
 
-    super->constructor( is_item     = is_item
-                        iv_language = iv_language ).
+    super->constructor(
+      is_item        = is_item
+      iv_language    = iv_language
+      io_files       = io_files
+      io_i18n_params = io_i18n_params ).
 
     mv_profile = is_item-obj_name.
 
@@ -60,7 +69,7 @@ CLASS zcl_abapgit_object_oa2p IMPLEMENTATION.
       CATCH cx_swb_object_does_not_exist.
         zcx_abapgit_exception=>raise( |OAuth2 Profile { lv_profile_key } doesn't exist.| ).
       CATCH cx_swb_exception.
-        zcx_abapgit_exception=>raise( |Error when geting details of OAuth2 Profile { lv_profile_key }.| ).
+        zcx_abapgit_exception=>raise( |Error when getting details of OAuth2 Profile { lv_profile_key }.| ).
     ENDTRY.
 
     lo_profile = <lo_wb>.
@@ -74,14 +83,7 @@ CLASS zcl_abapgit_object_oa2p IMPLEMENTATION.
 
   METHOD zif_abapgit_object~delete.
 
-    DATA:
-      lv_object       TYPE string,
-      lv_object_class TYPE string,
-      lv_transp_pkg   TYPE abap_bool,
-      lv_dummy        TYPE string.
-
     CONSTANTS: lc_actvt TYPE c LENGTH 2 VALUE `06`.
-
 
     DATA: lo_persist     TYPE REF TO object,
           lv_profile_key TYPE seu_objkey.
@@ -90,7 +92,7 @@ CLASS zcl_abapgit_object_oa2p IMPLEMENTATION.
     AUTHORITY-CHECK OBJECT 'S_OA2C_ADM'
       ID 'ACTVT'     FIELD lc_actvt.
     IF sy-subrc <> 0.
-      MESSAGE e463(01) WITH mv_profile INTO lv_dummy.
+      MESSAGE e463(01) WITH mv_profile INTO zcx_abapgit_exception=>null.
       zcx_abapgit_exception=>raise_t100( ).
     ENDIF.
 
@@ -107,38 +109,7 @@ CLASS zcl_abapgit_object_oa2p IMPLEMENTATION.
         zcx_abapgit_exception=>raise( |Error when deleting OAuth2 Profile { lv_profile_key }.| ).
     ENDTRY.
 
-
-    "collect change in transport
-    lv_transp_pkg = zcl_abapgit_factory=>get_sap_package( iv_package )->are_changes_recorded_in_tr_req( ).
-    IF lv_transp_pkg = abap_true.
-
-      lv_object_class = ms_item-obj_type.
-      lv_object       = ms_item-obj_name.
-
-      CALL FUNCTION 'RS_CORR_INSERT'
-        EXPORTING
-          object              = lv_object
-          object_class        = lv_object_class
-          master_language     = mv_language
-          global_lock         = abap_true
-          mode                = 'D'
-          suppress_dialog     = abap_true
-        EXCEPTIONS
-          cancelled           = 1
-          permission_failure  = 2
-          unknown_objectclass = 3
-          OTHERS              = 4.
-      IF sy-subrc <> 0.
-        zcx_abapgit_exception=>raise_t100(
-            iv_msgid              = sy-msgid
-            iv_msgno              = sy-msgno
-            iv_msgv1              = sy-msgv1
-            iv_msgv2              = sy-msgv2
-            iv_msgv3              = sy-msgv3
-            iv_msgv4              = sy-msgv4 ).
-      ENDIF.
-    ENDIF.
-
+    corr_insert( iv_package ).
 
   ENDMETHOD.
 
@@ -201,6 +172,11 @@ CLASS zcl_abapgit_object_oa2p IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD zif_abapgit_object~get_deserialize_order.
+    RETURN.
+  ENDMETHOD.
+
+
   METHOD zif_abapgit_object~get_deserialize_steps.
     APPEND zif_abapgit_object=>gc_step_id-abap TO rt_steps.
   ENDMETHOD.
@@ -208,7 +184,6 @@ CLASS zcl_abapgit_object_oa2p IMPLEMENTATION.
 
   METHOD zif_abapgit_object~get_metadata.
     rs_metadata = get_metadata( ).
-    rs_metadata-delete_tadir = abap_true.
   ENDMETHOD.
 
 
@@ -236,24 +211,23 @@ CLASS zcl_abapgit_object_oa2p IMPLEMENTATION.
         enq     = lt_locks.    " Number of chosen lock entries
 
 
-    IF lv_lock_number > 0.
-      rv_is_locked = abap_true.
-    ELSE.
-      rv_is_locked = abap_false.
-    ENDIF.
+    rv_is_locked = boolc( lv_lock_number > 0 ).
 
   ENDMETHOD.
 
 
   METHOD zif_abapgit_object~jump.
+    " Covered by ZCL_ABAPGIT_OBJECTS=>JUMP
+  ENDMETHOD.
 
-    CALL FUNCTION 'RS_TOOL_ACCESS'
-      EXPORTING
-        operation     = 'SHOW'
-        object_name   = mv_profile
-        object_type   = 'OA2P'
-        in_new_window = abap_true.
 
+  METHOD zif_abapgit_object~map_filename_to_object.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_object_to_filename.
+    RETURN.
   ENDMETHOD.
 
 
@@ -291,7 +265,7 @@ CLASS zcl_abapgit_object_oa2p IMPLEMENTATION.
       CATCH cx_swb_object_does_not_exist.
         zcx_abapgit_exception=>raise( |OAuth2 Profile { lv_profile_key } doesn't exist.| ).
       CATCH cx_swb_exception.
-        zcx_abapgit_exception=>raise( |Error when geting details of OAuth2 Profile { lv_profile_key }.| ).
+        zcx_abapgit_exception=>raise( |Error when getting details of OAuth2 Profile { lv_profile_key }.| ).
     ENDTRY.
 
     "remove system specific information

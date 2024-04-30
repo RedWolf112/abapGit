@@ -10,8 +10,13 @@ CLASS zcl_abapgit_object_ueno DEFINITION
 
     METHODS constructor
       IMPORTING
-        !is_item     TYPE zif_abapgit_definitions=>ty_item
-        !iv_language TYPE spras.
+        !is_item        TYPE zif_abapgit_definitions=>ty_item
+        !iv_language    TYPE spras
+        !io_files       TYPE REF TO zcl_abapgit_objects_files OPTIONAL
+        !io_i18n_params TYPE REF TO zcl_abapgit_i18n_params OPTIONAL
+      RAISING
+        zcx_abapgit_exception.
+
   PROTECTED SECTION.
 
 
@@ -34,7 +39,7 @@ CLASS zcl_abapgit_object_ueno DEFINITION
 
 
     METHODS build_text_name
-      IMPORTING VALUE(iv_id)     TYPE tdid
+      IMPORTING iv_id            TYPE tdid
       RETURNING VALUE(rv_result) TYPE doku_obj.
 
     METHODS is_name_permitted
@@ -54,19 +59,19 @@ CLASS zcl_abapgit_object_ueno DEFINITION
 
     METHODS deserialize_docu_uen
       IMPORTING
-        io_xml TYPE REF TO zcl_abapgit_xml_input
+        io_xml TYPE REF TO zif_abapgit_xml_input
       RAISING
         zcx_abapgit_exception.
 
     METHODS deserialize_docu_url
       IMPORTING
-        io_xml TYPE REF TO zcl_abapgit_xml_input
+        io_xml TYPE REF TO zif_abapgit_xml_input
       RAISING
         zcx_abapgit_exception.
 
     METHODS deserialize_docu_usp
       IMPORTING
-        io_xml TYPE REF TO zcl_abapgit_xml_input
+        io_xml TYPE REF TO zif_abapgit_xml_input
       RAISING
         zcx_abapgit_exception.
 
@@ -74,23 +79,23 @@ CLASS zcl_abapgit_object_ueno DEFINITION
 
     METHODS serialize_docu_uen
       IMPORTING
-        io_xml TYPE REF TO zcl_abapgit_xml_output
+        io_xml TYPE REF TO zif_abapgit_xml_output
       RAISING
         zcx_abapgit_exception.
 
     METHODS serialize_docu_url
       IMPORTING
-        io_xml TYPE REF TO zcl_abapgit_xml_output
+        io_xml TYPE REF TO zif_abapgit_xml_output
       RAISING
         zcx_abapgit_exception.
 
     METHODS serialize_docu_xxxx
-      IMPORTING VALUE(iv_id)     TYPE tdid
+      IMPORTING iv_id            TYPE tdid
       RETURNING VALUE(rt_result) TYPE ty_docu_lines.
 
     METHODS serialize_docu_usp
       IMPORTING
-        io_xml TYPE REF TO zcl_abapgit_xml_output
+        io_xml TYPE REF TO zif_abapgit_xml_output
       RAISING
         zcx_abapgit_exception.
 
@@ -101,11 +106,20 @@ CLASS zcl_abapgit_object_ueno DEFINITION
         zcx_abapgit_exception.
 
 
+    METHODS get_generic
+      RETURNING
+        VALUE(ro_generic) TYPE REF TO zcl_abapgit_objects_generic
+      RAISING
+        zcx_abapgit_exception .
+    METHODS get_field_rules
+      RETURNING
+        VALUE(ro_result) TYPE REF TO zif_abapgit_field_rules.
 ENDCLASS.
 
 
 
 CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
+
 
   METHOD build_text_name.
 
@@ -118,7 +132,7 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
     DATA ls_text_name TYPE ty_text_name.
 
     ls_text_name-id = iv_id.
-    ls_text_name-entity = me->mv_entity_id.
+    ls_text_name-entity = mv_entity_id.
     ls_text_name-modifier = 'A%'.
 
     rv_result = ls_text_name.
@@ -128,12 +142,16 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
 
   METHOD constructor.
 
-    super->constructor( is_item  =  is_item
-                        iv_language = iv_language ).
+    super->constructor(
+      is_item        = is_item
+      iv_language    = iv_language
+      io_files       = io_files
+      io_i18n_params = io_i18n_params ).
 
-    me->mv_entity_id = is_item-obj_name.
+    mv_entity_id = is_item-obj_name.
 
   ENDMETHOD.
+
 
   METHOD delete_docu_uen.
 
@@ -143,7 +161,8 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
     SELECT *
       FROM dm02l
       INTO TABLE lt_dm02l
-      WHERE entid = me->mv_entity_id.
+      WHERE entid = mv_entity_id
+      ORDER BY PRIMARY KEY.
 
     LOOP AT lt_dm02l INTO ls_dm02l.
 
@@ -152,7 +171,7 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
           key1     = ls_dm02l-entid
           key2     = ls_dm02l-as4local
           key3     = '00'
-          langu    = me->mv_language
+          langu    = mv_language
           obj_id   = 'UENC' "Entity Comments
         EXCEPTIONS
           ret_code = 0.
@@ -162,7 +181,7 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
           key1     = ls_dm02l-entid
           key2     = ls_dm02l-as4local
           key3     = '00'
-          langu    = me->mv_language
+          langu    = mv_language
           obj_id   = 'UEND' "Entity Definition
         EXCEPTIONS
           ret_code = 0.
@@ -172,7 +191,7 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
           key1     = ls_dm02l-entid
           key2     = ls_dm02l-as4local
           key3     = '00'
-          langu    = me->mv_language
+          langu    = mv_language
           obj_id   = 'UENE' "Entity Example
         EXCEPTIONS
           ret_code = 0.
@@ -180,6 +199,7 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
     ENDLOOP.
 
   ENDMETHOD.
+
 
   METHOD delete_docu_url.
 
@@ -189,13 +209,14 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
     SELECT *
       FROM dm42s
       INTO TABLE lt_dm42s
-      WHERE entidto = me->mv_entity_id.
+      WHERE entidto = mv_entity_id
+      ORDER BY PRIMARY KEY.
 
     LOOP AT lt_dm42s INTO ls_dm42s.
 
       CALL FUNCTION 'SDU_DOCU_DELETE'
         EXPORTING
-          langu    = me->mv_language
+          langu    = mv_language
           obj_id   = 'URL1'
           key1     = ls_dm42s-entidto
           key2     = ls_dm42s-as4local
@@ -206,7 +227,7 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
 
       CALL FUNCTION 'SDU_DOCU_DELETE'
         EXPORTING
-          langu    = me->mv_language
+          langu    = mv_language
           obj_id   = 'URL2'
           key1     = ls_dm42s-entidto
           key2     = ls_dm42s-as4local
@@ -217,7 +238,7 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
 
       CALL FUNCTION 'SDU_DOCU_DELETE'
         EXPORTING
-          langu    = me->mv_language
+          langu    = mv_language
           obj_id   = 'URLC'
           key1     = ls_dm42s-entidto
           key2     = ls_dm42s-as4local
@@ -231,6 +252,7 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
 
   ENDMETHOD.
 
+
   METHOD delete_docu_usp.
 
     DATA lt_dm45l TYPE STANDARD TABLE OF dm45l WITH DEFAULT KEY.
@@ -239,56 +261,20 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
     SELECT *
       FROM dm45l
       INTO TABLE lt_dm45l
-      WHERE entid = me->ms_item-obj_name.
+      WHERE entid = ms_item-obj_name
+      ORDER BY PRIMARY KEY.
 
     LOOP AT lt_dm45l INTO ls_dm45l.
 
       CALL FUNCTION 'SDU_DOCU_DELETE'
         EXPORTING
-          langu    = me->mv_language
+          langu    = mv_language
           obj_id   = 'USPD'
           key1     = ls_dm45l-entid
           key2     = ls_dm45l-as4local
           key3     = ls_dm45l-spezid
         EXCEPTIONS
           ret_code = 0.
-
-    ENDLOOP.
-
-
-  ENDMETHOD.
-
-
-  METHOD deserialize_docu_xxxx.
-
-    DATA ls_docu LIKE LINE OF it_docu.
-    DATA lv_objname TYPE lxeobjname.
-    DATA lv_change_flag TYPE char1.
-    DATA lv_error_status  TYPE lxestatprc.
-
-    LOOP AT it_docu INTO ls_docu.
-
-      ls_docu-header-tdfuser = sy-uname.
-      ls_docu-header-tdfdate = sy-datum.
-      ls_docu-header-tdftime = sy-uzeit.
-
-      ls_docu-header-tdluser = sy-uname.
-      ls_docu-header-tdldate = sy-datum.
-      ls_docu-header-tdltime = sy-uzeit.
-
-      lv_objname = ls_docu-header-tdname.
-
-      CALL FUNCTION 'LXE_OBJ_DOKU_PUT_XSTRING'
-        EXPORTING
-          slang       = me->mv_language
-          tlang       = ls_docu-language
-          objtype     = ls_docu-header-tdid
-          objname     = lv_objname
-          header      = ls_docu-header
-          content     = ls_docu-content
-        IMPORTING
-          change_flag = lv_change_flag
-          pstatus     = lv_error_status.
 
     ENDLOOP.
 
@@ -342,6 +328,7 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
 
   ENDMETHOD.
 
+
   METHOD deserialize_docu_usp.
 
     DATA lt_docu TYPE ty_docu_lines.
@@ -353,6 +340,126 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
 
   ENDMETHOD.
 
+
+  METHOD deserialize_docu_xxxx.
+
+    DATA ls_docu LIKE LINE OF it_docu.
+    DATA lv_objname TYPE lxeobjname.
+    DATA lv_change_flag TYPE char1.
+    DATA lv_error_status  TYPE lxestatprc.
+
+    LOOP AT it_docu INTO ls_docu.
+
+      ls_docu-header-tdfuser = sy-uname.
+      ls_docu-header-tdfdate = sy-datum.
+      ls_docu-header-tdftime = sy-uzeit.
+      ls_docu-header-tdfreles = sy-saprl.
+
+      ls_docu-header-tdluser = sy-uname.
+      ls_docu-header-tdldate = sy-datum.
+      ls_docu-header-tdltime = sy-uzeit.
+      ls_docu-header-tdlreles = sy-saprl.
+
+      lv_objname = ls_docu-header-tdname.
+
+      CALL FUNCTION 'LXE_OBJ_DOKU_PUT_XSTRING'
+        EXPORTING
+          slang       = mv_language
+          tlang       = ls_docu-language
+          objtype     = ls_docu-header-tdid
+          objname     = lv_objname
+          header      = ls_docu-header
+          content     = ls_docu-content
+        IMPORTING
+          change_flag = lv_change_flag
+          pstatus     = lv_error_status.
+
+    ENDLOOP.
+
+
+  ENDMETHOD.
+
+
+  METHOD get_field_rules.
+
+    DATA:
+      lt_fields    TYPE TABLE OF string,
+      lv_fields    TYPE string,
+      lv_table     TYPE tabname,
+      lv_field     TYPE string,
+      lv_rule      TYPE string,
+      lv_rule_iter TYPE string,
+      lv_fill_rule TYPE zif_abapgit_field_rules=>ty_fill_rule,
+      lv_prefix    TYPE fieldname,
+      lv_suffix    TYPE fieldname.
+
+    ro_result = zcl_abapgit_field_rules=>create( ).
+
+    " Many tables and fields with date,time,user so we encode them
+    APPEND 'DM02L,FL,DTU' TO lt_fields.
+    APPEND 'DM02T,L,DTU' TO lt_fields.
+    APPEND 'DM03S,FL,DTU' TO lt_fields.
+    APPEND 'DM25L,FL,DTU' TO lt_fields.
+    APPEND 'DM26L,FL,DTU' TO lt_fields.
+    APPEND 'DM42S,FL,DTU' TO lt_fields.
+    APPEND 'DM42T,L,DTU' TO lt_fields.
+    APPEND 'DM43T,L,DU' TO lt_fields.
+    APPEND 'DM45L,FL,DTU' TO lt_fields.
+    APPEND 'DM45T,L,DTU' TO lt_fields.
+    APPEND 'DM46S,FL,DTU' TO lt_fields.
+
+    LOOP AT lt_fields INTO lv_fields.
+      SPLIT lv_fields AT ',' INTO lv_table lv_field lv_rule_iter.
+
+      DO strlen( lv_field ) TIMES.
+        CASE lv_field(1).
+          WHEN 'F'.
+            lv_prefix = 'FST'.
+          WHEN 'L'.
+            lv_prefix = 'LST'.
+        ENDCASE.
+
+        lv_rule = lv_rule_iter.
+        DO strlen( lv_rule ) TIMES.
+          CASE lv_rule(1).
+            WHEN 'D'.
+              lv_suffix    = 'DATE'.
+              lv_fill_rule = zif_abapgit_field_rules=>c_fill_rule-date.
+            WHEN 'T'.
+              lv_suffix    = 'TIME'.
+              lv_fill_rule = zif_abapgit_field_rules=>c_fill_rule-time.
+            WHEN 'U'.
+              lv_suffix    = 'USER'.
+              lv_fill_rule = zif_abapgit_field_rules=>c_fill_rule-user.
+          ENDCASE.
+
+          ro_result->add(
+            iv_table     = lv_table
+            iv_field     = lv_prefix && lv_suffix
+            iv_fill_rule = lv_fill_rule ).
+
+          SHIFT lv_rule LEFT.
+        ENDDO.
+
+        SHIFT lv_field LEFT.
+      ENDDO.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+
+  METHOD get_generic.
+
+    CREATE OBJECT ro_generic
+      EXPORTING
+        io_field_rules = get_field_rules( )
+        is_item        = ms_item
+        iv_language    = mv_language.
+
+  ENDMETHOD.
+
+
   METHOD is_name_permitted.
 
     " It is unlikely that a serialized entity will have a name that is not permitted. However
@@ -361,16 +468,17 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
 
     CALL FUNCTION 'SDU_SAA_CHECK'
       EXPORTING
-        obj_name   = me->ms_item-obj_name
-        obj_type   = me->ms_item-obj_type
+        obj_name   = ms_item-obj_name
+        obj_type   = ms_item-obj_type
       EXCEPTIONS
-        wrong_type = 01.
+        wrong_type = 1.
 
     IF sy-subrc <> 0.
       zcx_abapgit_exception=>raise_t100( ).
     ENDIF.
 
   ENDMETHOD.
+
 
   METHOD serialize_docu_uen.
 
@@ -393,6 +501,7 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
                  ig_data = lt_docu ).
   ENDMETHOD.
 
+
   METHOD serialize_docu_url.
 
 
@@ -413,6 +522,7 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
 
   ENDMETHOD.
 
+
   METHOD serialize_docu_usp.
 
     DATA lt_docu            TYPE ty_docu_lines.
@@ -425,6 +535,7 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
 
   ENDMETHOD.
 
+
   METHOD serialize_docu_xxxx.
 
     DATA ls_docu            TYPE ty_docu.
@@ -434,13 +545,14 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
     DATA lv_objname         TYPE lxeobjname.
 
 
-    ls_dokvl-object = me->build_text_name( iv_id = iv_id ).
+    ls_dokvl-object = build_text_name( iv_id ).
 
     SELECT id object langu
       FROM dokvl
       INTO CORRESPONDING FIELDS OF TABLE lt_dokvl
       WHERE id = c_text_object_type
-      AND   object LIKE ls_dokvl-object ##TOO_MANY_ITAB_FIELDS.
+      AND   object LIKE ls_dokvl-object
+      ORDER BY id object langu ##TOO_MANY_ITAB_FIELDS.
 
     LOOP AT lt_dokvl INTO ls_dokvl.
 
@@ -465,10 +577,12 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
       CLEAR ls_docu-header-tdfuser.
       CLEAR ls_docu-header-tdfdate.
       CLEAR ls_docu-header-tdftime.
+      CLEAR ls_docu-header-tdfreles.
 
       CLEAR ls_docu-header-tdluser.
       CLEAR ls_docu-header-tdldate.
       CLEAR ls_docu-header-tdltime.
+      CLEAR ls_docu-header-tdlreles.
 
       APPEND ls_docu TO rt_result.
 
@@ -477,11 +591,12 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
 
   ENDMETHOD.
 
+
   METHOD zif_abapgit_object~changed_by.
 
     SELECT SINGLE lstuser INTO rv_user
       FROM dm02l
-      WHERE entid = me->mv_entity_id
+      WHERE entid = mv_entity_id
       AND as4local = c_active_state.
 
     IF sy-subrc <> 0.
@@ -493,12 +608,6 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
 
   METHOD zif_abapgit_object~delete.
 
-    DATA lo_generic TYPE REF TO zcl_abapgit_objects_generic.
-
-    CREATE OBJECT lo_generic
-      EXPORTING
-        is_item = ms_item.
-
     " The deletion of the documentation occurs before the deletion of
     " the associated tables - otherwise we don't know what
     " documentation needs deletion
@@ -507,24 +616,18 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
     delete_docu_usp( ).
 
     " the deletion of the tables of the entity
-    lo_generic->delete( ).
+    get_generic( )->delete( iv_package ).
 
   ENDMETHOD.
 
 
   METHOD zif_abapgit_object~deserialize.
 
-    DATA lo_generic TYPE REF TO zcl_abapgit_objects_generic.
-
-    CREATE OBJECT lo_generic
-      EXPORTING
-        is_item = ms_item.
-
     " Is the entity type name compliant with naming conventions?
     " Entity Type have their own conventions.
     is_name_permitted( ).
 
-    lo_generic->deserialize(
+    get_generic( )->deserialize(
       iv_package = iv_package
       io_xml     = io_xml ).
 
@@ -539,18 +642,17 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
 
   METHOD zif_abapgit_object~exists.
 
-    DATA: lo_generic TYPE REF TO zcl_abapgit_objects_generic.
-
-    CREATE OBJECT lo_generic
-      EXPORTING
-        is_item = ms_item.
-
-    rv_bool = lo_generic->exists( ).
+    rv_bool = get_generic( )->exists( ).
 
   ENDMETHOD.
 
 
   METHOD zif_abapgit_object~get_comparator.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~get_deserialize_order.
     RETURN.
   ENDMETHOD.
 
@@ -606,37 +708,32 @@ CLASS zcl_abapgit_object_ueno IMPLEMENTATION.
     <ls_bdcdata>-fnam = 'RSUD3-OBJ_KEY'.
     <ls_bdcdata>-fval = ms_item-obj_name.
 
-    CALL FUNCTION 'ABAP4_CALL_TRANSACTION'
-      STARTING NEW TASK 'GIT'
-      EXPORTING
-        tcode                 = 'SD11'
-        mode_val              = 'E'
-      TABLES
-        using_tab             = lt_bdcdata
-      EXCEPTIONS
-        system_failure        = 1
-        communication_failure = 2
-        resource_failure      = 3
-        OTHERS                = 4
-        ##fm_subrc_ok.                                                   "#EC CI_SUBRC
+    zcl_abapgit_objects_factory=>get_gui_jumper( )->jump_batch_input(
+      iv_tcode   = 'SD11'
+      it_bdcdata = lt_bdcdata ).
 
+    rv_exit = abap_true.
+
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_filename_to_object.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_object_to_filename.
+    RETURN.
   ENDMETHOD.
 
 
   METHOD zif_abapgit_object~serialize.
 
-    DATA: lo_generic TYPE REF TO zcl_abapgit_objects_generic.
-
-    CREATE OBJECT lo_generic
-      EXPORTING
-        is_item = ms_item.
-
-    lo_generic->serialize( io_xml ).
+    get_generic( )->serialize( io_xml ).
 
     serialize_docu_uen( io_xml ).
     serialize_docu_url( io_xml ).
     serialize_docu_usp( io_xml ).
 
   ENDMETHOD.
-
 ENDCLASS.

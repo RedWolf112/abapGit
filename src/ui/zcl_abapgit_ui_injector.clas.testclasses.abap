@@ -32,7 +32,7 @@ CLASS ltcl_abapgit_popups_mock IMPLEMENTATION.
 
   ENDMETHOD.
 
-  METHOD zif_abapgit_popups~branch_popup_callback.
+  METHOD zif_abapgit_popups~commit_list_popup.
 
   ENDMETHOD.
 
@@ -40,19 +40,7 @@ CLASS ltcl_abapgit_popups_mock IMPLEMENTATION.
 
   ENDMETHOD.
 
-  METHOD zif_abapgit_popups~package_popup_callback.
-
-  ENDMETHOD.
-
   METHOD zif_abapgit_popups~popup_folder_logic.
-
-  ENDMETHOD.
-
-  METHOD zif_abapgit_popups~popup_object.
-
-  ENDMETHOD.
-
-  METHOD zif_abapgit_popups~popup_package_export.
 
   ENDMETHOD.
 
@@ -68,15 +56,11 @@ CLASS ltcl_abapgit_popups_mock IMPLEMENTATION.
 
   ENDMETHOD.
 
-  METHOD zif_abapgit_popups~popup_to_inform.
-
-  ENDMETHOD.
-
   METHOD zif_abapgit_popups~popup_to_select_from_list.
 
   ENDMETHOD.
 
-  METHOD zif_abapgit_popups~popup_to_select_transports.
+  METHOD zif_abapgit_popups~popup_to_select_transport.
 
   ENDMETHOD.
 
@@ -84,19 +68,27 @@ CLASS ltcl_abapgit_popups_mock IMPLEMENTATION.
 
   ENDMETHOD.
 
-  METHOD zif_abapgit_popups~repo_new_offline.
-
-  ENDMETHOD.
-
-  METHOD zif_abapgit_popups~repo_popup.
-
-  ENDMETHOD.
-
-  METHOD zif_abapgit_popups~popup_proxy_bypass.
-
-  ENDMETHOD.
-
   METHOD zif_abapgit_popups~popup_search_help.
+
+  ENDMETHOD.
+
+  METHOD zif_abapgit_popups~popup_select_tr_requests.
+
+  ENDMETHOD.
+
+  METHOD zif_abapgit_popups~popup_select_wb_tc_tr_and_tsk.
+
+  ENDMETHOD.
+
+  METHOD zif_abapgit_popups~tag_list_popup.
+
+  ENDMETHOD.
+
+  METHOD zif_abapgit_popups~popup_to_select_labels.
+
+  ENDMETHOD.
+
+  METHOD zif_abapgit_popups~choose_code_insp_check_variant.
 
   ENDMETHOD.
 

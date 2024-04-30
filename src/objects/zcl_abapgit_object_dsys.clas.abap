@@ -6,8 +6,12 @@ CLASS zcl_abapgit_object_dsys DEFINITION PUBLIC INHERITING FROM zcl_abapgit_obje
 
     METHODS constructor
       IMPORTING
-        is_item     TYPE zif_abapgit_definitions=>ty_item
-        iv_language TYPE spras.
+        !is_item        TYPE zif_abapgit_definitions=>ty_item
+        !iv_language    TYPE spras
+        !io_files       TYPE REF TO zcl_abapgit_objects_files OPTIONAL
+        !io_i18n_params TYPE REF TO zcl_abapgit_i18n_params OPTIONAL
+      RAISING
+        zcx_abapgit_exception.
 
   PROTECTED SECTION.
 
@@ -26,11 +30,11 @@ CLASS zcl_abapgit_object_dsys DEFINITION PUBLIC INHERITING FROM zcl_abapgit_obje
 
     METHODS deserialize_dsys
       IMPORTING
-        io_xml TYPE REF TO zcl_abapgit_xml_input
+        ii_xml TYPE REF TO zif_abapgit_xml_input
       RAISING
         zcx_abapgit_exception.
 
-    METHODS get_master_lang
+    METHODS get_main_lang
       RETURNING
         VALUE(rv_language) TYPE spras.
 
@@ -38,7 +42,7 @@ ENDCLASS.
 
 
 
-CLASS ZCL_ABAPGIT_OBJECT_DSYS IMPLEMENTATION.
+CLASS zcl_abapgit_object_dsys IMPLEMENTATION.
 
 
   METHOD constructor.
@@ -46,17 +50,26 @@ CLASS ZCL_ABAPGIT_OBJECT_DSYS IMPLEMENTATION.
     DATA: lv_prefix    TYPE namespace,
           lv_bare_name TYPE progname.
 
-    super->constructor( is_item = is_item
-                        iv_language = iv_language ).
+    super->constructor(
+      is_item        = is_item
+      iv_language    = iv_language
+      io_files       = io_files
+      io_i18n_params = io_i18n_params ).
 
-    CALL FUNCTION 'RS_NAME_SPLIT_NAMESPACE'
-      EXPORTING
-        name_with_namespace    = ms_item-obj_name
-      IMPORTING
-        namespace              = lv_prefix
-        name_without_namespace = lv_bare_name.
+    IF ms_item-obj_name(1) = '/'.
 
-    mv_doc_object = |{ lv_bare_name+0(4) }{ lv_prefix }{ lv_bare_name+4(*) }|.
+      CALL FUNCTION 'RS_NAME_SPLIT_NAMESPACE'
+        EXPORTING
+          name_with_namespace    = ms_item-obj_name
+        IMPORTING
+          namespace              = lv_prefix
+          name_without_namespace = lv_bare_name.
+
+      mv_doc_object = |{ lv_bare_name+0(4) }{ lv_prefix }{ lv_bare_name+4(*) }|.
+    ELSE.
+
+      mv_doc_object = ms_item-obj_name.
+    ENDIF.
 
   ENDMETHOD.
 
@@ -65,16 +78,18 @@ CLASS ZCL_ABAPGIT_OBJECT_DSYS IMPLEMENTATION.
 
     DATA: ls_data      TYPE ty_data,
           ls_docu_info TYPE dokil,
-          lv_version   TYPE dokvers.
+          lv_version   TYPE dokvers,
+          lv_doku_obj  TYPE doku_obj.
 
-    io_xml->read( EXPORTING iv_name = 'DSYS'
+    lv_doku_obj = mv_doc_object.
+    ii_xml->read( EXPORTING iv_name = 'DSYS'
                   CHANGING cg_data = ls_data ).
 
     CALL FUNCTION 'DOCU_INIT'
       EXPORTING
         id     = c_id
         langu  = mv_language
-        object = mv_doc_object
+        object = lv_doku_obj
         typ    = c_typ
       IMPORTING
         xdokil = ls_docu_info.
@@ -93,14 +108,12 @@ CLASS ZCL_ABAPGIT_OBJECT_DSYS IMPLEMENTATION.
   ENDMETHOD.
 
 
-  METHOD get_master_lang.
-
-    DATA: lv_language TYPE spras.
+  METHOD get_main_lang.
 
     SELECT SINGLE langu FROM dokil INTO rv_language
       WHERE id = c_id
       AND object = mv_doc_object
-      AND masterlang = abap_true.
+      AND masterlang = abap_true.                       "#EC CI_NOORDER
 
     IF sy-subrc <> 0.
       rv_language = mv_language.
@@ -124,6 +137,8 @@ CLASS ZCL_ABAPGIT_OBJECT_DSYS IMPLEMENTATION.
       iv_object_name = mv_doc_object
       iv_longtext_id = c_id ).
 
+    corr_insert( iv_package ).
+
   ENDMETHOD.
 
 
@@ -140,8 +155,10 @@ CLASS ZCL_ABAPGIT_OBJECT_DSYS IMPLEMENTATION.
 
       WHEN 'v2.0.0'.
         zcl_abapgit_factory=>get_longtexts( )->deserialize(
-          io_xml             = io_xml
-          iv_master_language = mv_language ).
+          ii_xml           = io_xml
+          iv_object_name   = mv_doc_object
+          iv_longtext_id   = c_id
+          iv_main_language = mv_language ).
 
       WHEN OTHERS.
         zcx_abapgit_exception=>raise( 'unsupported DSYS version' ).
@@ -149,6 +166,8 @@ CLASS ZCL_ABAPGIT_OBJECT_DSYS IMPLEMENTATION.
     ENDCASE.
 
     tadir_insert( iv_package ).
+
+    corr_insert( iv_package ).
 
   ENDMETHOD.
 
@@ -159,7 +178,7 @@ CLASS ZCL_ABAPGIT_OBJECT_DSYS IMPLEMENTATION.
 
     SELECT SINGLE COUNT( * ) FROM dokil INTO lv_count
            WHERE id   = c_id
-           AND object = mv_doc_object.                  "#EC CI_GENBUFF
+           AND object = mv_doc_object.  "#EC CI_GENBUFF "#EC CI_NOORDER
 
     rv_bool = boolc( lv_count > 0 ).
 
@@ -171,6 +190,11 @@ CLASS ZCL_ABAPGIT_OBJECT_DSYS IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD zif_abapgit_object~get_deserialize_order.
+    RETURN.
+  ENDMETHOD.
+
+
   METHOD zif_abapgit_object~get_deserialize_steps.
     APPEND zif_abapgit_object=>gc_step_id-abap TO rt_steps.
   ENDMETHOD.
@@ -178,7 +202,6 @@ CLASS ZCL_ABAPGIT_OBJECT_DSYS IMPLEMENTATION.
 
   METHOD zif_abapgit_object~get_metadata.
     rs_metadata = get_metadata( ).
-    rs_metadata-delete_tadir = abap_true.
     rs_metadata-version = 'v2.0.0'.
   ENDMETHOD.
 
@@ -197,33 +220,40 @@ CLASS ZCL_ABAPGIT_OBJECT_DSYS IMPLEMENTATION.
 
     DATA lv_lang TYPE sy-langu.
 
-    lv_lang = get_master_lang( ).
+    lv_lang = get_main_lang( ).
 
     CALL FUNCTION 'DSYS_EDIT'
       EXPORTING
-        dokclass         = mv_doc_object+0(4)
-        dokname          = mv_doc_object+4(*)
-        doklangu         = lv_lang
+        dokclass            = mv_doc_object+0(4)
+        dokname             = mv_doc_object+4(*)
+        doklangu            = lv_lang
       EXCEPTIONS
-        class_unknown    = 1
-        object_not_found = 2
-        OTHERS           = 3.
+        not_hypertext_class = 1
+        no_editor           = 2
+        OTHERS              = 3.
 
-    IF sy-subrc <> 0.
-      zcx_abapgit_exception=>raise( 'error from DSYS_EDIT' ).
-    ENDIF.
+    rv_exit = boolc( sy-subrc = 0 ).
 
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_filename_to_object.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_object_to_filename.
+    RETURN.
   ENDMETHOD.
 
 
   METHOD zif_abapgit_object~serialize.
 
-    io_xml->i18n_params( abap_false ).
-
     zcl_abapgit_factory=>get_longtexts( )->serialize(
       iv_object_name = mv_doc_object
       iv_longtext_id = c_id
-      io_xml         = io_xml ).
+      io_i18n_params = mo_i18n_params
+      ii_xml         = io_xml ).
 
   ENDMETHOD.
 ENDCLASS.

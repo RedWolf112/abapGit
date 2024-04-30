@@ -19,11 +19,14 @@ CLASS zcl_abapgit_object_char DEFINITION
         cls_attr_valuet TYPE STANDARD TABLE OF cls_attr_valuet WITH DEFAULT KEY,
       END OF ty_char .
 
+    CONSTANTS c_longtext_id_char TYPE dokil-id VALUE 'CH'.
+
     METHODS instantiate_char_and_lock
       IMPORTING
-        !iv_type_group TYPE cls_object_type_group
+        !iv_type_group       TYPE cls_object_type_group
+        !iv_activation_state TYPE pak_activation_state
       RETURNING
-        VALUE(ro_char) TYPE REF TO cl_cls_attribute
+        VALUE(ro_char)       TYPE REF TO cl_cls_attribute
       RAISING
         zcx_abapgit_exception .
 ENDCLASS.
@@ -46,9 +49,10 @@ CLASS ZCL_ABAPGIT_OBJECT_CHAR IMPLEMENTATION.
     TRY.
         CREATE OBJECT ro_char
           EXPORTING
-            im_name       = lv_name
-            im_type_group = iv_type_group
-            im_new        = lv_new.
+            im_name             = lv_name
+            im_type_group       = iv_type_group
+            im_new              = lv_new
+            im_activation_state = iv_activation_state.
       CATCH cx_pak_invalid_data
           cx_pak_not_authorized
           cx_pak_invalid_state
@@ -63,7 +67,7 @@ CLASS ZCL_ABAPGIT_OBJECT_CHAR IMPLEMENTATION.
             cx_pak_not_authorized
             cx_pak_invalid_state
             cx_pak_wb_object_locked.
-          zcx_abapgit_exception=>raise( |Could not aquire lock, CHAR { lv_name }| ).
+          zcx_abapgit_exception=>raise( |Could not acquire lock, CHAR { lv_name }| ).
       ENDTRY.
     ENDIF.
 
@@ -101,7 +105,8 @@ CLASS ZCL_ABAPGIT_OBJECT_CHAR IMPLEMENTATION.
       WHERE name = ms_item-obj_name
       AND activation_state = 'A'.
 
-    lo_char = instantiate_char_and_lock( lv_type_group ).
+    lo_char = instantiate_char_and_lock( iv_type_group       = lv_type_group
+                                         iv_activation_state = cl_pak_wb_domains=>co_activation_state-active ).
 
     TRY.
         lo_char->if_pak_wb_object~delete( ).
@@ -139,7 +144,8 @@ CLASS ZCL_ABAPGIT_OBJECT_CHAR IMPLEMENTATION.
 
     tadir_insert( iv_package ).
 
-    lo_char = instantiate_char_and_lock( ls_char-cls_attribute-type_group ).
+    lo_char = instantiate_char_and_lock( iv_type_group       = ls_char-cls_attribute-type_group
+                                         iv_activation_state = cl_pak_wb_domains=>co_activation_state-inactive ).
 
     TRY.
         lo_char->if_cls_attribute~set_kind( ls_char-cls_attribute-kind ).
@@ -211,6 +217,9 @@ CLASS ZCL_ABAPGIT_OBJECT_CHAR IMPLEMENTATION.
         lo_char->if_pak_wb_object_internal~unlock( ).
     ENDTRY.
 
+    deserialize_longtexts( ii_xml         = io_xml
+                           iv_longtext_id = c_longtext_id_char ).
+
   ENDMETHOD.
 
 
@@ -222,6 +231,11 @@ CLASS ZCL_ABAPGIT_OBJECT_CHAR IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~get_comparator.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~get_deserialize_order.
     RETURN.
   ENDMETHOD.
 
@@ -250,21 +264,17 @@ CLASS ZCL_ABAPGIT_OBJECT_CHAR IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~jump.
+    " Covered by ZCL_ABAPGIT_OBJECTS=>JUMP
+  ENDMETHOD.
 
-    CALL FUNCTION 'RS_TOOL_ACCESS'
-      EXPORTING
-        operation           = 'SHOW'
-        object_name         = ms_item-obj_name
-        object_type         = ms_item-obj_type
-      EXCEPTIONS
-        not_executed        = 1
-        invalid_object_type = 2
-        OTHERS              = 3.
 
-    IF sy-subrc <> 0.
-      zcx_abapgit_exception=>raise( |Error from RS_TOOL_ACCESS, CHAR| ).
-    ENDIF.
+  METHOD zif_abapgit_object~map_filename_to_object.
+    RETURN.
+  ENDMETHOD.
 
+
+  METHOD zif_abapgit_object~map_object_to_filename.
+    RETURN.
   ENDMETHOD.
 
 
@@ -287,18 +297,30 @@ CLASS ZCL_ABAPGIT_OBJECT_CHAR IMPLEMENTATION.
 
     SELECT * FROM cls_attributet INTO TABLE ls_char-cls_attributet
       WHERE name = ms_item-obj_name
-      AND activation_state = lc_active.
+      AND activation_state = lc_active
+      ORDER BY PRIMARY KEY.
+    IF mo_i18n_params->ms_params-main_language_only = abap_true.
+      DELETE ls_char-cls_attributet WHERE langu <> mv_language.
+    ENDIF.
 
     SELECT * FROM cls_attr_value INTO TABLE ls_char-cls_attr_value
       WHERE name = ms_item-obj_name
-      AND activation_state = lc_active.
+      AND activation_state = lc_active
+      ORDER BY PRIMARY KEY.
 
     SELECT * FROM cls_attr_valuet INTO TABLE ls_char-cls_attr_valuet
       WHERE name = ms_item-obj_name
-      AND activation_state = lc_active.
+      AND activation_state = lc_active
+      ORDER BY PRIMARY KEY.
+    IF mo_i18n_params->ms_params-main_language_only = abap_true.
+      DELETE ls_char-cls_attr_valuet WHERE langu <> mv_language.
+    ENDIF.
 
     io_xml->add( iv_name = 'CHAR'
                  ig_data = ls_char ).
+
+    serialize_longtexts( ii_xml         = io_xml
+                         iv_longtext_id = c_longtext_id_char ).
 
   ENDMETHOD.
 ENDCLASS.

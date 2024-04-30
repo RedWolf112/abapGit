@@ -47,9 +47,9 @@ CLASS ZCL_ABAPGIT_GIT_ADD_PATCH IMPLEMENTATION.
     LOOP AT mt_diff ASSIGNING <ls_diff>.
 
       CASE <ls_diff>-result.
-        WHEN ' '.
+        WHEN zif_abapgit_definitions=>c_diff-unchanged.
 
-          INSERT <ls_diff>-new INTO TABLE rt_patch.
+          INSERT <ls_diff>-old INTO TABLE rt_patch.
 
         WHEN zif_abapgit_definitions=>c_diff-insert.
 
@@ -108,8 +108,8 @@ CLASS ZCL_ABAPGIT_GIT_ADD_PATCH IMPLEMENTATION.
       mt_patch = calculate_patch( ).
     ENDIF.
 
-    CONCATENATE LINES OF mt_patch INTO lv_string SEPARATED BY zif_abapgit_definitions=>c_newline.
-    lv_string = lv_string && zif_abapgit_definitions=>c_newline.
+    CONCATENATE LINES OF mt_patch INTO lv_string SEPARATED BY cl_abap_char_utilities=>newline.
+    lv_string = lv_string && cl_abap_char_utilities=>newline.
 
     rv_patch_binary = zcl_abapgit_convert=>string_to_xstring_utf8( lv_string ).
 

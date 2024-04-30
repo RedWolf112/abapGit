@@ -2,10 +2,13 @@ CLASS zcl_abapgit_object_fugr DEFINITION PUBLIC INHERITING FROM zcl_abapgit_obje
 
   PUBLIC SECTION.
     INTERFACES zif_abapgit_object.
-    ALIASES mo_files FOR zif_abapgit_object~mo_files.
-
   PROTECTED SECTION.
   PRIVATE SECTION.
+
+    CONSTANTS:
+      c_longtext_id_prog     TYPE dokil-id VALUE 'RE',
+      c_longtext_id_func     TYPE dokil-id VALUE 'FU',
+      c_longtext_id_func_exc TYPE dokil-id VALUE 'FX'.
 
     TYPES:
       ty_rs38l_incl_tt TYPE STANDARD TABLE OF rs38l_incl WITH DEFAULT KEY .
@@ -35,7 +38,10 @@ CLASS zcl_abapgit_object_fugr DEFINITION PUBLIC INHERITING FROM zcl_abapgit_obje
         textpool TYPE zif_abapgit_definitions=>ty_tpool_tt,
       END OF ty_tpool_i18n .
     TYPES:
-      tt_tpool_i18n TYPE STANDARD TABLE OF ty_tpool_i18n .
+      ty_tpools_i18n TYPE STANDARD TABLE OF ty_tpool_i18n .
+
+    DATA mt_includes_cache TYPE ty_sobj_name_tt .
+    DATA mt_includes_all TYPE ty_sobj_name_tt .
 
     METHODS check_rfc_parameters
       IMPORTING
@@ -69,17 +75,36 @@ CLASS zcl_abapgit_object_fugr DEFINITION PUBLIC INHERITING FROM zcl_abapgit_obje
       IMPORTING
         !it_functions TYPE ty_function_tt
         !ii_log       TYPE REF TO zif_abapgit_log
+        !iv_version   TYPE uccheck
+        !iv_package   TYPE devclass
+        !iv_transport TYPE trkorr
+      RAISING
+        zcx_abapgit_exception .
+    METHODS serialize_function_docs
+      IMPORTING
+        !iv_prog_name TYPE syrepid
+        !it_functions TYPE ty_function_tt
+        !ii_xml       TYPE REF TO zif_abapgit_xml_output
+      RAISING
+        zcx_abapgit_exception .
+    METHODS deserialize_function_docs
+      IMPORTING
+        !iv_prog_name TYPE syrepid
+        !it_functions TYPE ty_function_tt
+        !ii_xml       TYPE REF TO zif_abapgit_xml_input
       RAISING
         zcx_abapgit_exception .
     METHODS serialize_xml
       IMPORTING
-        !io_xml TYPE REF TO zcl_abapgit_xml_output
+        !ii_xml TYPE REF TO zif_abapgit_xml_output
       RAISING
         zcx_abapgit_exception .
     METHODS deserialize_xml
       IMPORTING
-        !io_xml     TYPE REF TO zcl_abapgit_xml_input
-        !iv_package TYPE devclass
+        !ii_xml       TYPE REF TO zif_abapgit_xml_input
+        !iv_version   TYPE uccheck
+        !iv_package   TYPE devclass
+        !iv_transport TYPE trkorr
       RAISING
         zcx_abapgit_exception .
     METHODS serialize_includes
@@ -87,16 +112,9 @@ CLASS zcl_abapgit_object_fugr DEFINITION PUBLIC INHERITING FROM zcl_abapgit_obje
         zcx_abapgit_exception .
     METHODS deserialize_includes
       IMPORTING
-        !io_xml     TYPE REF TO zcl_abapgit_xml_input
+        !ii_xml     TYPE REF TO zif_abapgit_xml_input
         !iv_package TYPE devclass
         !ii_log     TYPE REF TO zif_abapgit_log
-      RAISING
-        zcx_abapgit_exception .
-    METHODS are_exceptions_class_based
-      IMPORTING
-        !iv_function_name TYPE rs38l_fnam
-      RETURNING
-        VALUE(rv_return)  TYPE abap_bool
       RAISING
         zcx_abapgit_exception .
     METHODS is_function_group_locked
@@ -116,7 +134,7 @@ CLASS zcl_abapgit_object_fugr DEFINITION PUBLIC INHERITING FROM zcl_abapgit_obje
         zcx_abapgit_exception .
     METHODS get_abap_version
       IMPORTING
-        !io_xml                TYPE REF TO zcl_abapgit_xml_input
+        !ii_xml                TYPE REF TO zif_abapgit_xml_input
       RETURNING
         VALUE(rv_abap_version) TYPE progdir-uccheck
       RAISING
@@ -127,51 +145,26 @@ CLASS zcl_abapgit_object_fugr DEFINITION PUBLIC INHERITING FROM zcl_abapgit_obje
         !iv_short_text TYPE tftit-stext .
     METHODS serialize_texts
       IMPORTING
-        !iv_prog_name TYPE programm
-        !io_xml       TYPE REF TO zcl_abapgit_xml_output
+        !iv_prog_name TYPE syrepid
+        !ii_xml       TYPE REF TO zif_abapgit_xml_output
       RAISING
         zcx_abapgit_exception .
     METHODS deserialize_texts
       IMPORTING
-        !iv_prog_name TYPE programm
-        !io_xml       TYPE REF TO zcl_abapgit_xml_input
+        !iv_prog_name TYPE syrepid
+        !ii_xml       TYPE REF TO zif_abapgit_xml_input
       RAISING
         zcx_abapgit_exception .
+    METHODS is_part_of_other_fugr
+      IMPORTING
+        !iv_include                     TYPE sobj_name
+      RETURNING
+        VALUE(rv_belongs_to_other_fugr) TYPE abap_bool.
 ENDCLASS.
 
 
 
-CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
-
-
-  METHOD are_exceptions_class_based.
-    DATA:
-      lt_dokumentation    TYPE TABLE OF funct,
-      lt_exception_list   TYPE TABLE OF rsexc,
-      lt_export_parameter TYPE TABLE OF rsexp,
-      lt_import_parameter TYPE TABLE OF rsimp,
-      lt_tables_parameter TYPE TABLE OF rstbl.
-
-    CALL FUNCTION 'FUNCTION_IMPORT_DOKU'
-      EXPORTING
-        funcname           = iv_function_name
-      IMPORTING
-        exception_class    = rv_return
-      TABLES
-        dokumentation      = lt_dokumentation
-        exception_list     = lt_exception_list
-        export_parameter   = lt_export_parameter
-        import_parameter   = lt_import_parameter
-        tables_parameter   = lt_tables_parameter
-      EXCEPTIONS
-        error_message      = 1
-        function_not_found = 2
-        invalid_name       = 3
-        OTHERS             = 4.
-    IF sy-subrc <> 0.
-      zcx_abapgit_exception=>raise( 'Error from FUNCTION_IMPORT_DOKU' ).
-    ENDIF.
-  ENDMETHOD.
+CLASS zcl_abapgit_object_fugr IMPLEMENTATION.
 
 
   METHOD check_rfc_parameters.
@@ -228,13 +221,9 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
           lv_namespace TYPE rs38l-namespace,
           lt_source    TYPE TABLE OF abaptxt255,
           lv_msg       TYPE string,
-          lx_error     TYPE REF TO zcx_abapgit_exception,
-          lv_corrnum   TYPE e070use-ordernum.
+          lx_error     TYPE REF TO zcx_abapgit_exception.
 
     FIELD-SYMBOLS: <ls_func> LIKE LINE OF it_functions.
-
-
-    lv_corrnum = zcl_abapgit_default_transport=>get_instance( )->get( )-ordernum.
 
     LOOP AT it_functions ASSIGNING <ls_func>.
 
@@ -258,16 +247,9 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
         CONTINUE. "with next function module
       ENDIF.
 
-      CALL FUNCTION 'FUNCTION_EXISTS'
-        EXPORTING
-          funcname           = <ls_func>-funcname
-        IMPORTING
-          include            = lv_include
-        EXCEPTIONS
-          function_not_exist = 1.
-      IF sy-subrc = 0.
+      IF zcl_abapgit_factory=>get_function_module( )->function_exists( <ls_func>-funcname ) = abap_true.
 * delete the function module to make sure the parameters are updated
-* havent found a nice way to update the paramters
+* haven't found a nice way to update the parameters
         CALL FUNCTION 'FUNCTION_DELETE'
           EXPORTING
             funcname                 = <ls_func>-funcname
@@ -303,7 +285,7 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
           exception_class         = <ls_func>-exception_classes
           namespace               = lv_namespace
           remote_basxml_supported = <ls_func>-remote_basxml
-          corrnum                 = lv_corrnum
+          corrnum                 = iv_transport
         IMPORTING
           function_include        = lv_include
         TABLES
@@ -332,7 +314,12 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
         CONTINUE.  "with next function module
       ENDIF.
 
-      INSERT REPORT lv_include FROM lt_source.
+      zcl_abapgit_factory=>get_sap_report( )->insert_report(
+        iv_name    = lv_include
+        iv_package = iv_package
+        iv_version = iv_version
+        it_source  = lt_source ).
+
       ii_log->add_success( iv_msg = |Function module { <ls_func>-funcname } imported|
                            is_item = ms_item ).
     ENDLOOP.
@@ -340,10 +327,38 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD deserialize_function_docs.
+
+    FIELD-SYMBOLS <ls_func> LIKE LINE OF it_functions.
+
+    zcl_abapgit_factory=>get_longtexts( )->deserialize(
+      iv_longtext_id   = c_longtext_id_prog
+      iv_object_name   = iv_prog_name
+      ii_xml           = ii_xml
+      iv_main_language = mv_language ).
+
+    LOOP AT it_functions ASSIGNING <ls_func>.
+      zcl_abapgit_factory=>get_longtexts( )->deserialize(
+        iv_longtext_name = |LONGTEXTS_{ <ls_func>-funcname }|
+        iv_longtext_id   = c_longtext_id_func
+        iv_object_name   = <ls_func>-funcname
+        ii_xml           = ii_xml
+        iv_main_language = mv_language ).
+      zcl_abapgit_factory=>get_longtexts( )->deserialize(
+        iv_longtext_name = |LONGTEXTS_{ <ls_func>-funcname }___EXC|
+        iv_longtext_id   = c_longtext_id_func_exc
+        iv_object_name   = <ls_func>-funcname
+        ii_xml           = ii_xml
+        iv_main_language = mv_language ).
+    ENDLOOP.
+
+  ENDMETHOD.
+
+
   METHOD deserialize_includes.
 
-    DATA: lo_xml       TYPE REF TO zcl_abapgit_xml_input,
-          ls_progdir   TYPE ty_progdir,
+    DATA: lo_xml       TYPE REF TO zif_abapgit_xml_input,
+          ls_progdir   TYPE zif_abapgit_sap_report=>ty_progdir,
           lt_includes  TYPE ty_sobj_name_tt,
           lt_tpool     TYPE textpool_table,
           lt_tpool_ext TYPE zif_abapgit_definitions=>ty_tpool_tt,
@@ -355,7 +370,7 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
 
     tadir_insert( iv_package ).
 
-    io_xml->read( EXPORTING iv_name = 'INCLUDES'
+    ii_xml->read( EXPORTING iv_name = 'INCLUDES'
                   CHANGING cg_data = lt_includes ).
 
     LOOP AT lt_includes ASSIGNING <lv_include>.
@@ -374,6 +389,8 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
 
           lo_xml->read( EXPORTING iv_name = 'PROGDIR'
                         CHANGING cg_data = ls_progdir ).
+
+          set_abap_language_version( CHANGING cv_abap_language_version = ls_progdir-uccheck ).
 
           lo_xml->read( EXPORTING iv_name = 'TPOOL'
                         CHANGING cg_data = lt_tpool_ext ).
@@ -403,11 +420,11 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
 
 
   METHOD deserialize_texts.
-    DATA: lt_tpool_i18n TYPE tt_tpool_i18n,
+    DATA: lt_tpool_i18n TYPE ty_tpools_i18n,
           lt_tpool      TYPE textpool_table.
 
     FIELD-SYMBOLS <ls_tpool> LIKE LINE OF lt_tpool_i18n.
-    io_xml->read( EXPORTING iv_name = 'I18N_TPOOL'
+    ii_xml->read( EXPORTING iv_name = 'I18N_TPOOL'
                   CHANGING  cg_data = lt_tpool_i18n ).
 
     LOOP AT lt_tpool_i18n ASSIGNING <ls_tpool>.
@@ -421,15 +438,12 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
 
   METHOD deserialize_xml.
 
-    DATA: lv_complete     TYPE rs38l-area,
-          lv_namespace    TYPE rs38l-namespace,
-          lv_areat        TYPE tlibt-areat,
-          lv_stext        TYPE tftit-stext,
-          lv_group        TYPE rs38l-area,
-          lv_abap_version TYPE trdir-uccheck,
-          lv_corrnum      TYPE e070use-ordernum.
+    DATA: lv_complete  TYPE rs38l-area,
+          lv_namespace TYPE rs38l-namespace,
+          lv_areat     TYPE tlibt-areat,
+          lv_stext     TYPE tftit-stext,
+          lv_group     TYPE rs38l-area.
 
-    lv_abap_version = get_abap_version( io_xml ).
     lv_complete = ms_item-obj_name.
 
     CALL FUNCTION 'FUNCTION_INCLUDE_SPLIT'
@@ -452,13 +466,12 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
         area_length_error            = 11
         OTHERS                       = 12.
     IF sy-subrc <> 0.
-      zcx_abapgit_exception=>raise( 'error from FUNCTION_INCLUDE_SPLIT' ).
+      zcx_abapgit_exception=>raise_t100( ).
     ENDIF.
 
-    io_xml->read( EXPORTING iv_name = 'AREAT'
+    ii_xml->read( EXPORTING iv_name = 'AREAT'
                   CHANGING cg_data = lv_areat ).
     lv_stext = lv_areat.
-    lv_corrnum = zcl_abapgit_default_transport=>get_instance( )->get( )-ordernum.
 
     CALL FUNCTION 'RS_FUNCTION_POOL_INSERT'
       EXPORTING
@@ -466,8 +479,8 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
         short_text              = lv_stext
         namespace               = lv_namespace
         devclass                = iv_package
-        unicode_checks          = lv_abap_version
-        corrnum                 = lv_corrnum
+        unicode_checks          = iv_version
+        corrnum                 = iv_transport
         suppress_corr_check     = abap_false
       EXCEPTIONS
         name_already_exists     = 1
@@ -491,7 +504,7 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
         update_func_group_short_text( iv_group      = lv_group
                                       iv_short_text = lv_stext ).
       WHEN OTHERS.
-        zcx_abapgit_exception=>raise( |error from RS_FUNCTION_POOL_INSERT, code: { sy-subrc }| ).
+        zcx_abapgit_exception=>raise_t100( ).
     ENDCASE.
 
   ENDMETHOD.
@@ -500,9 +513,10 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
   METHOD functions.
 
     DATA: lv_area TYPE rs38l-area.
-
+    FIELD-SYMBOLS: <ls_functab> TYPE LINE OF ty_rs38l_incl_tt.
 
     lv_area = ms_item-obj_name.
+
 
     CALL FUNCTION 'RS_FUNCTION_POOL_CONTENTS'
       EXPORTING
@@ -513,8 +527,13 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
         function_pool_not_found = 1
         OTHERS                  = 2.
     IF sy-subrc <> 0.
-      zcx_abapgit_exception=>raise( 'Error from RS_FUNCTION_POOL_CONTENTS' ).
+      zcx_abapgit_exception=>raise_t100( ).
     ENDIF.
+
+* The result can also contain function which are lowercase.
+    LOOP AT rt_functab ASSIGNING <ls_functab>.
+      TRANSLATE <ls_functab> TO UPPER CASE.
+    ENDLOOP.
 
     SORT rt_functab BY funcname ASCENDING.
     DELETE ADJACENT DUPLICATES FROM rt_functab COMPARING funcname.
@@ -525,12 +544,12 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
   METHOD get_abap_version.
 
     DATA: lt_includes TYPE ty_sobj_name_tt,
-          ls_progdir  TYPE ty_progdir,
-          lo_xml      TYPE REF TO zcl_abapgit_xml_input.
+          ls_progdir  TYPE zif_abapgit_sap_report=>ty_progdir,
+          lo_xml      TYPE REF TO zif_abapgit_xml_input.
 
     FIELD-SYMBOLS: <lv_include> LIKE LINE OF lt_includes.
 
-    io_xml->read( EXPORTING iv_name = 'INCLUDES'
+    ii_xml->read( EXPORTING iv_name = 'INCLUDES'
                   CHANGING cg_data = lt_includes ).
 
     LOOP AT lt_includes ASSIGNING <lv_include>.
@@ -552,7 +571,7 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
     ENDLOOP.
 
     IF rv_abap_version IS INITIAL.
-      rv_abap_version = 'X'.
+      set_abap_language_version( CHANGING cv_abap_language_version = rv_abap_version ).
     ENDIF.
 
   ENDMETHOD.
@@ -562,7 +581,6 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
 
     TYPES: BEGIN OF ty_reposrc,
              progname TYPE reposrc-progname,
-             cnam     TYPE reposrc-cnam,
            END OF ty_reposrc.
 
     DATA: lt_reposrc        TYPE STANDARD TABLE OF ty_reposrc WITH DEFAULT KEY,
@@ -578,14 +596,17 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
                    <ls_func>    LIKE LINE OF lt_functab.
 
 
+    IF lines( mt_includes_cache ) > 0.
+      rt_includes = mt_includes_cache.
+      RETURN.
+    ENDIF.
+
     lv_program = main_name( ).
     lt_functab = functions( ).
 
     CALL FUNCTION 'RS_GET_ALL_INCLUDES'
       EXPORTING
         program      = lv_program
-*       WITH_RESERVED_INCLUDES =
-*       WITH_CLASS_INCLUDES    = ' ' hmm, todo
       TABLES
         includetab   = rt_includes
       EXCEPTIONS
@@ -617,6 +638,7 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
       APPEND lv_maintviewname TO rt_includes.
     ENDIF.
 
+    SORT rt_includes.
     IF lines( rt_includes ) > 0.
       " check which includes have their own tadir entry
       " these includes might reside in a different package or might be shared between multiple function groups
@@ -648,11 +670,13 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
         ENDIF.
       ENDLOOP.
 
-      SELECT progname cnam FROM reposrc
-        INTO TABLE lt_reposrc
-        FOR ALL ENTRIES IN rt_includes
-        WHERE progname = rt_includes-table_line
-        AND r3state = 'A'.
+      IF lines( rt_includes ) > 0.
+        SELECT progname FROM reposrc
+          INTO TABLE lt_reposrc
+          FOR ALL ENTRIES IN rt_includes
+          WHERE progname = rt_includes-table_line
+          AND r3state = 'A'.
+      ENDIF.
       SORT lt_reposrc BY progname ASCENDING.
     ENDIF.
 
@@ -664,11 +688,19 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
         WITH KEY progname = <lv_include> BINARY SEARCH.
       IF sy-subrc <> 0.
         DELETE rt_includes INDEX lv_tabix.
+        CONTINUE.
       ENDIF.
 
+      "Make sure that the include does not belong to another function group
+      IF is_part_of_other_fugr( <lv_include> ) = abap_true.
+        DELETE rt_includes.
+      ENDIF.
     ENDLOOP.
 
     APPEND lv_program TO rt_includes.
+    SORT rt_includes.
+
+    mt_includes_cache = rt_includes.
 
   ENDMETHOD.
 
@@ -723,16 +755,44 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
 
 
   METHOD is_function_group_locked.
-
-    DATA: lv_object TYPE eqegraarg.
-
-    lv_object = |FG{ ms_item-obj_name }|.
-    OVERLAY lv_object WITH '                                          '.
-    lv_object = lv_object && '*'.
-
     rv_is_functions_group_locked = exists_a_lock_entry_for( iv_lock_object = 'EEUDB'
-                                                            iv_argument    = lv_object ).
+                                                            iv_argument    = ms_item-obj_name
+                                                            iv_prefix      = 'FG' ).
+  ENDMETHOD.
 
+
+  METHOD is_part_of_other_fugr.
+    " make sure that the include belongs to the function group
+    " like in LSEAPFAP Form TADIR_MAINTENANCE
+    DATA ls_tadir TYPE tadir.
+    DATA lv_namespace TYPE rs38l-namespace.
+    DATA lv_function_group TYPE rs38l-area.
+    DATA lv_include TYPE rs38l-include.
+
+    rv_belongs_to_other_fugr = abap_false.
+    IF iv_include(1) = 'L' OR iv_include+1 CS '/L'.
+      lv_include = iv_include.
+      ls_tadir-object = 'FUGR'.
+
+      CALL FUNCTION 'FUNCTION_INCLUDE_SPLIT'
+        IMPORTING
+          namespace = lv_namespace
+          group     = lv_function_group
+        CHANGING
+          include   = lv_include
+        EXCEPTIONS
+          OTHERS    = 1.
+      IF lv_function_group(1) = 'X'.    " "EXIT"-function-module
+        ls_tadir-object = 'FUGS'.
+      ENDIF.
+      IF sy-subrc = 0.
+        CONCATENATE lv_namespace lv_function_group INTO ls_tadir-obj_name.
+        " compare complete tadir key to distinguish between regular and exit function groups
+        IF ls_tadir-obj_name <> ms_item-obj_name OR ls_tadir-object <> ms_item-obj_type.
+          rv_belongs_to_other_fugr = abap_true.
+        ENDIF.
+      ENDIF.
+    ENDIF.
   ENDMETHOD.
 
 
@@ -765,7 +825,7 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
         area_length_error            = 11
         OTHERS                       = 12.
     IF sy-subrc <> 0.
-      zcx_abapgit_exception=>raise( 'Error from FUNCTION_INCLUDE_SPLIT' ).
+      zcx_abapgit_exception=>raise_t100( ).
     ENDIF.
 
     CONCATENATE lv_namespace 'SAPL' lv_group INTO rv_program.
@@ -829,18 +889,51 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
         CLEAR <ls_documentation>-index.
       ENDLOOP.
 
-      ls_function-exception_classes = are_exceptions_class_based( <ls_func>-funcname ).
+      SELECT SINGLE exten3 INTO ls_function-exception_classes FROM enlfdir
+        WHERE funcname = <ls_func>-funcname.              "#EC CI_SUBRC
 
       APPEND ls_function TO rt_functions.
 
       IF NOT lt_new_source IS INITIAL.
-        mo_files->add_abap( iv_extra = <ls_func>-funcname
-                            it_abap  = lt_new_source ).
+        strip_generation_comments( CHANGING ct_source = lt_new_source ).
+        mo_files->add_abap(
+          iv_extra = <ls_func>-funcname
+          it_abap  = lt_new_source ).
       ELSE.
-        mo_files->add_abap( iv_extra = <ls_func>-funcname
-                            it_abap  = lt_source ).
+        strip_generation_comments( CHANGING ct_source = lt_source ).
+        mo_files->add_abap(
+          iv_extra = <ls_func>-funcname
+          it_abap  = lt_source ).
       ENDIF.
 
+    ENDLOOP.
+
+  ENDMETHOD.
+
+
+  METHOD serialize_function_docs.
+
+    FIELD-SYMBOLS <ls_func> LIKE LINE OF it_functions.
+
+    zcl_abapgit_factory=>get_longtexts( )->serialize(
+      iv_longtext_id = c_longtext_id_prog
+      iv_object_name = iv_prog_name
+      io_i18n_params = mo_i18n_params
+      ii_xml         = ii_xml ).
+
+    LOOP AT it_functions ASSIGNING <ls_func>.
+      zcl_abapgit_factory=>get_longtexts( )->serialize(
+        iv_longtext_name = |LONGTEXTS_{ <ls_func>-funcname }|
+        iv_longtext_id   = c_longtext_id_func
+        iv_object_name   = <ls_func>-funcname
+        io_i18n_params   = mo_i18n_params
+        ii_xml           = ii_xml ).
+      zcl_abapgit_factory=>get_longtexts( )->serialize(
+        iv_longtext_name = |LONGTEXTS_{ <ls_func>-funcname }___EXC|
+        iv_longtext_id   = c_longtext_id_func_exc
+        iv_object_name   = <ls_func>-funcname
+        io_i18n_params   = mo_i18n_params
+        ii_xml           = ii_xml ).
     ENDLOOP.
 
   ENDMETHOD.
@@ -869,24 +962,31 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
 
 
   METHOD serialize_texts.
-    DATA: lt_tpool_i18n TYPE tt_tpool_i18n,
+    DATA: lt_tpool_i18n TYPE ty_tpools_i18n,
           lt_tpool      TYPE textpool_table.
 
     FIELD-SYMBOLS <ls_tpool> LIKE LINE OF lt_tpool_i18n.
 
-    IF io_xml->i18n_params( )-serialize_master_lang_only = abap_true.
+    IF mo_i18n_params->ms_params-main_language_only = abap_true.
       RETURN.
     ENDIF.
 
     " Table d010tinf stores info. on languages in which program is maintained
     " Select all active translations of program texts
-    " Skip master language - it was already serialized
+    " Skip main language - it was already serialized
     SELECT DISTINCT language
       INTO CORRESPONDING FIELDS OF TABLE lt_tpool_i18n
       FROM d010tinf
       WHERE r3state = 'A'
       AND prog = iv_prog_name
-      AND language <> mv_language ##TOO_MANY_ITAB_FIELDS.
+      AND language <> mv_language
+      ORDER BY language ##TOO_MANY_ITAB_FIELDS.
+
+    mo_i18n_params->trim_saplang_keyed_table(
+      EXPORTING
+        iv_lang_field_name = 'LANGUAGE'
+      CHANGING
+        ct_tab = lt_tpool_i18n ).
 
     SORT lt_tpool_i18n BY language ASCENDING.
     LOOP AT lt_tpool_i18n ASSIGNING <ls_tpool>.
@@ -897,7 +997,7 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
     ENDLOOP.
 
     IF lines( lt_tpool_i18n ) > 0.
-      io_xml->add( iv_name = 'I18N_TPOOL'
+      ii_xml->add( iv_name = 'I18N_TPOOL'
                    ig_data = lt_tpool_i18n ).
     ENDIF.
   ENDMETHOD.
@@ -916,9 +1016,9 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
 
     lt_includes = includes( ).
 
-    io_xml->add( iv_name = 'AREAT'
+    ii_xml->add( iv_name = 'AREAT'
                  ig_data = lv_areat ).
-    io_xml->add( iv_name = 'INCLUDES'
+    ii_xml->add( iv_name = 'INCLUDES'
                  ig_data = lt_includes ).
 
   ENDMETHOD.
@@ -932,8 +1032,7 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
     "   FORM GROUP_CHANGE
 
     UPDATE tlibt SET areat = iv_short_text
-                 WHERE spras = mv_language
-                 AND   area  = iv_group.
+      WHERE spras = mv_language AND area = iv_group.
 
   ENDMETHOD.
 
@@ -964,56 +1063,81 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
   METHOD zif_abapgit_object~changed_by.
 
     TYPES: BEGIN OF ty_stamps,
-             user TYPE xubname,
+             user TYPE syuname,
              date TYPE d,
              time TYPE t,
            END OF ty_stamps.
 
-    DATA: lt_stamps   TYPE STANDARD TABLE OF ty_stamps WITH DEFAULT KEY,
-          lv_program  TYPE program,
-          lt_includes TYPE ty_sobj_name_tt.
+    DATA:
+      lt_stamps    TYPE STANDARD TABLE OF ty_stamps WITH DEFAULT KEY,
+      lv_program   TYPE program,
+      lv_found     TYPE abap_bool,
+      lt_functions TYPE ty_rs38l_incl_tt.
 
-    FIELD-SYMBOLS: <ls_stamp>   LIKE LINE OF lt_stamps,
-                   <lv_include> LIKE LINE OF lt_includes.
-
+    FIELD-SYMBOLS:
+      <ls_function> LIKE LINE OF lt_functions,
+      <lv_include>  LIKE LINE OF mt_includes_all,
+      <ls_stamp>    LIKE LINE OF lt_stamps.
 
     lv_program = main_name( ).
 
-    CALL FUNCTION 'RS_GET_ALL_INCLUDES'
-      EXPORTING
-        program      = lv_program
-      TABLES
-        includetab   = lt_includes
-      EXCEPTIONS
-        not_existent = 1
-        no_program   = 2
-        OTHERS       = 3.
-    IF sy-subrc <> 0.
-      zcx_abapgit_exception=>raise( 'Error from RS_GET_ALL_INCLUDES' ).
+    IF mt_includes_all IS INITIAL.
+      CALL FUNCTION 'RS_GET_ALL_INCLUDES'
+        EXPORTING
+          program      = lv_program
+        TABLES
+          includetab   = mt_includes_all
+        EXCEPTIONS
+          not_existent = 1
+          no_program   = 2
+          OTHERS       = 3.
+      IF sy-subrc <> 0.
+        zcx_abapgit_exception=>raise( 'Error from RS_GET_ALL_INCLUDES' ).
+      ENDIF.
     ENDIF.
+
+    " Check if changed_by for include object was requested
+    LOOP AT mt_includes_all ASSIGNING <lv_include> WHERE table_line = to_upper( iv_extra ).
+      lv_program = <lv_include>.
+      lv_found   = abap_true.
+      EXIT.
+    ENDLOOP.
+
+    " Check if changed_by for function module was requested
+    lt_functions = functions( ).
+
+    LOOP AT lt_functions ASSIGNING <ls_function> WHERE funcname = to_upper( iv_extra ).
+      lv_program = <ls_function>-include.
+      lv_found   = abap_true.
+      EXIT.
+    ENDLOOP.
 
     SELECT unam AS user udat AS date utime AS time FROM reposrc
       APPENDING CORRESPONDING FIELDS OF TABLE lt_stamps
       WHERE progname = lv_program
-      AND   r3state = 'A'.                                "#EC CI_SUBRC
+      AND r3state = 'A'
+      ORDER BY PRIMARY KEY.                               "#EC CI_SUBRC
 
-    LOOP AT lt_includes ASSIGNING <lv_include>.
+    IF mt_includes_all IS NOT INITIAL AND lv_found = abap_false.
       SELECT unam AS user udat AS date utime AS time FROM reposrc
         APPENDING CORRESPONDING FIELDS OF TABLE lt_stamps
-        WHERE progname = <lv_include>
-        AND   r3state = 'A'.                              "#EC CI_SUBRC
-    ENDLOOP.
+        FOR ALL ENTRIES IN mt_includes_all
+        WHERE progname = mt_includes_all-table_line
+        AND r3state = 'A'.                                "#EC CI_SUBRC
+    ENDIF.
 
     SELECT unam AS user udat AS date utime AS time FROM repotext " Program text pool
       APPENDING CORRESPONDING FIELDS OF TABLE lt_stamps
       WHERE progname = lv_program
-      AND   r3state = 'A'.                                "#EC CI_SUBRC
+      AND r3state = 'A'
+      ORDER BY PRIMARY KEY.                               "#EC CI_SUBRC
 
     SELECT vautor AS user vdatum AS date vzeit AS time FROM eudb         " GUI
       APPENDING CORRESPONDING FIELDS OF TABLE lt_stamps
       WHERE relid = 'CU'
-      AND   name  = lv_program
-      AND   srtf2 = 0 ##TOO_MANY_ITAB_FIELDS.
+      AND name = lv_program
+      AND srtf2 = 0
+      ORDER BY PRIMARY KEY ##TOO_MANY_ITAB_FIELDS.
 
 * Screens: username not stored in D020S database table
 
@@ -1032,21 +1156,24 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
   METHOD zif_abapgit_object~delete.
 
     DATA: lv_area     TYPE rs38l-area,
-          lt_includes TYPE ty_sobj_name_tt,
-          lv_corrnum  TYPE e070use-ordernum.
+          lt_includes TYPE ty_sobj_name_tt.
 
+    " FUGR related to change documents will be deleted by CHDO
+    SELECT SINGLE fgrp FROM tcdrps INTO lv_area WHERE fgrp = ms_item-obj_name.
+    IF sy-subrc = 0.
+      RETURN.
+    ENDIF.
 
     lt_includes = includes( ).
 
     lv_area = ms_item-obj_name.
-    lv_corrnum = zcl_abapgit_default_transport=>get_instance( )->get( )-ordernum.
 
     CALL FUNCTION 'RS_FUNCTION_POOL_DELETE'
       EXPORTING
         area                   = lv_area
         suppress_popups        = abap_true
         skip_progress_ind      = abap_true
-        corrnum                = lv_corrnum
+        corrnum                = iv_transport
       EXCEPTIONS
         canceled_in_corr       = 1
         enqueue_system_failure = 2
@@ -1059,7 +1186,7 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
         cancelled              = 9
         OTHERS                 = 10.
     IF sy-subrc <> 0.
-      zcx_abapgit_exception=>raise( 'error from RS_FUNCTION_POOL_DELETE' ).
+      zcx_abapgit_exception=>raise_t100( ).
     ENDIF.
 
     update_where_used( lt_includes ).
@@ -1069,39 +1196,57 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
 
   METHOD zif_abapgit_object~deserialize.
 
-    DATA: lv_program_name TYPE programm,
+    DATA: lv_program_name TYPE syrepid,
+          lv_abap_version TYPE trdir-uccheck,
           lt_functions    TYPE ty_function_tt,
           lt_dynpros      TYPE ty_dynpro_tt,
           ls_cua          TYPE ty_cua.
 
+    lv_abap_version = get_abap_version( io_xml ).
+
     deserialize_xml(
-      io_xml     = io_xml
-      iv_package = iv_package ).
+      ii_xml       = io_xml
+      iv_version   = lv_abap_version
+      iv_package   = iv_package
+      iv_transport = iv_transport ).
 
     io_xml->read( EXPORTING iv_name = 'FUNCTIONS'
                   CHANGING cg_data = lt_functions ).
+
     deserialize_functions(
       it_functions = lt_functions
-      ii_log       = ii_log ).
+      ii_log       = ii_log
+      iv_version   = lv_abap_version
+      iv_package   = iv_package
+      iv_transport = iv_transport ).
 
     deserialize_includes(
-      io_xml     = io_xml
+      ii_xml     = io_xml
       iv_package = iv_package
       ii_log     = ii_log ).
 
     lv_program_name = main_name( ).
 
-    deserialize_texts( iv_prog_name = lv_program_name
-                       io_xml       = io_xml ).
+    IF mo_i18n_params->is_lxe_applicable( ) = abap_false.
+      deserialize_texts( iv_prog_name = lv_program_name
+                         ii_xml       = io_xml ).
+    ENDIF.
 
     io_xml->read( EXPORTING iv_name = 'DYNPROS'
                   CHANGING cg_data = lt_dynpros ).
+
     deserialize_dynpros( lt_dynpros ).
 
     io_xml->read( EXPORTING iv_name = 'CUA'
                   CHANGING cg_data = ls_cua ).
+
     deserialize_cua( iv_program_name = lv_program_name
                      is_cua = ls_cua ).
+
+    deserialize_function_docs(
+      iv_prog_name = lv_program_name
+      it_functions = lt_functions
+      ii_xml       = io_xml ).
 
   ENDMETHOD.
 
@@ -1123,6 +1268,11 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~get_comparator.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~get_deserialize_order.
     RETURN.
   ENDMETHOD.
 
@@ -1164,13 +1314,49 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
 
   METHOD zif_abapgit_object~jump.
 
-    CALL FUNCTION 'RS_TOOL_ACCESS'
-      EXPORTING
-        operation     = 'SHOW'
-        object_name   = ms_item-obj_name
-        object_type   = 'FUGR'
-        in_new_window = abap_true.
+    DATA:
+      ls_item      TYPE zif_abapgit_definitions=>ty_item,
+      lt_functions TYPE ty_rs38l_incl_tt,
+      lt_includes  TYPE ty_sobj_name_tt.
 
+    FIELD-SYMBOLS:
+      <ls_function> LIKE LINE OF lt_functions,
+      <lv_include>  LIKE LINE OF lt_includes.
+
+    ls_item-obj_type = 'PROG'.
+    ls_item-obj_name = to_upper( iv_extra ).
+
+    lt_functions = functions( ).
+
+    LOOP AT lt_functions ASSIGNING <ls_function> WHERE funcname = ls_item-obj_name.
+      ls_item-obj_name = <ls_function>-include.
+      rv_exit = zcl_abapgit_objects_factory=>get_gui_jumper( )->jump( ls_item ).
+      IF rv_exit = abap_true.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+
+    lt_includes = includes( ).
+
+    LOOP AT lt_includes ASSIGNING <lv_include> WHERE table_line = ls_item-obj_name.
+      rv_exit = zcl_abapgit_objects_factory=>get_gui_jumper( )->jump( ls_item ).
+      IF rv_exit = abap_true.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+
+    " Otherwise covered by ZCL_ABAPGIT_OBJECTS=>JUMP
+
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_filename_to_object.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_object_to_filename.
+    RETURN.
   ENDMETHOD.
 
 
@@ -1181,8 +1367,8 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
 * function group SUNI
 
     DATA: lt_functions    TYPE ty_function_tt,
-          ls_progdir      TYPE ty_progdir,
-          lv_program_name TYPE programm,
+          ls_progdir      TYPE zif_abapgit_sap_report=>ty_progdir,
+          lv_program_name TYPE syrepid,
           lt_dynpros      TYPE ty_dynpro_tt,
           ls_cua          TYPE ty_cua.
 
@@ -1193,16 +1379,21 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
     serialize_xml( io_xml ).
 
     lt_functions = serialize_functions( ).
+
     io_xml->add( iv_name = 'FUNCTIONS'
                  ig_data = lt_functions ).
 
     serialize_includes( ).
 
     lv_program_name = main_name( ).
-    ls_progdir = read_progdir( lv_program_name ).
 
-    serialize_texts( iv_prog_name = lv_program_name
-                     io_xml       = io_xml ).
+    ls_progdir = zcl_abapgit_factory=>get_sap_report( )->read_progdir( lv_program_name ).
+
+    IF mo_i18n_params->is_lxe_applicable( ) = abap_false.
+      serialize_texts(
+        iv_prog_name = lv_program_name
+        ii_xml       = io_xml ).
+    ENDIF.
 
     IF ls_progdir-subc = 'F'.
       lt_dynpros = serialize_dynpros( lv_program_name ).
@@ -1213,6 +1404,10 @@ CLASS ZCL_ABAPGIT_OBJECT_FUGR IMPLEMENTATION.
       io_xml->add( iv_name = 'CUA'
                    ig_data = ls_cua ).
     ENDIF.
+
+    serialize_function_docs( iv_prog_name = lv_program_name
+                             it_functions = lt_functions
+                             ii_xml       = io_xml ).
 
   ENDMETHOD.
 ENDCLASS.

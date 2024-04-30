@@ -22,7 +22,7 @@ ENDCLASS.
 
 
 
-CLASS ZCL_ABAPGIT_OBJECT_SCVI IMPLEMENTATION.
+CLASS zcl_abapgit_object_scvi IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~changed_by.
@@ -68,8 +68,6 @@ CLASS ZCL_ABAPGIT_OBJECT_SCVI IMPLEMENTATION.
 
     DATA: ls_screen_variant TYPE ty_screen_variant.
 
-    DATA: lv_text TYPE natxt.
-
     io_xml->read(
       EXPORTING
         iv_name = 'SCVI'
@@ -80,13 +78,13 @@ CLASS ZCL_ABAPGIT_OBJECT_SCVI IMPLEMENTATION.
       EXPORTING
         scvariant = ls_screen_variant-shdsvci-scvariant
       EXCEPTIONS
-        OTHERS    = 01.
+        OTHERS    = 1.
     IF sy-subrc <> 0.
-      MESSAGE e413(ms) WITH ls_screen_variant-shdsvci-scvariant INTO lv_text.
+      MESSAGE e413(ms) WITH ls_screen_variant-shdsvci-scvariant INTO zcx_abapgit_exception=>null.
       zcx_abapgit_exception=>raise_t100( ).
     ENDIF.
 
-    corr_insert( iv_package = iv_package ).
+    corr_insert( iv_package ).
 
 *   Populate user details
     ls_screen_variant-shdsvci-crdate = sy-datum.
@@ -109,18 +107,27 @@ CLASS ZCL_ABAPGIT_OBJECT_SCVI IMPLEMENTATION.
 
   METHOD zif_abapgit_object~exists.
 
-    DATA: lo_screen_variant TYPE REF TO zcl_abapgit_objects_generic.
+    DATA: lv_screen_variant TYPE scvariant.
 
-    CREATE OBJECT lo_screen_variant
+    lv_screen_variant = ms_item-obj_name.
+
+    CALL FUNCTION 'RS_HDSYS_READ_SC_VARIANT_DB'
       EXPORTING
-        is_item = ms_item.
-
-    rv_bool = lo_screen_variant->exists( ).
+        scvariant  = lv_screen_variant
+      EXCEPTIONS
+        no_variant = 1
+        OTHERS     = 2.
+    rv_bool = boolc( sy-subrc = 0 ).
 
   ENDMETHOD.
 
 
   METHOD zif_abapgit_object~get_comparator.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~get_deserialize_order.
     RETURN.
   ENDMETHOD.
 
@@ -152,9 +159,16 @@ CLASS ZCL_ABAPGIT_OBJECT_SCVI IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~jump.
+  ENDMETHOD.
 
-    zcx_abapgit_exception=>raise( |TODO: Jump| ).
 
+  METHOD zif_abapgit_object~map_filename_to_object.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_object_to_filename.
+    RETURN.
   ENDMETHOD.
 
 
@@ -188,12 +202,14 @@ CLASS ZCL_ABAPGIT_OBJECT_SCVI IMPLEMENTATION.
     SELECT *
     FROM shdsvtxci
     INTO TABLE ls_screen_variant-shdsvtxci[]
-    WHERE scvariant = ls_screen_variant-shdsvci-scvariant.
+    WHERE scvariant = ls_screen_variant-shdsvci-scvariant
+    ORDER BY PRIMARY KEY.
 
     SELECT *
     FROM shdgxtcode
     INTO TABLE ls_screen_variant-shdgxtcode[]
-    WHERE scvariant = ls_screen_variant-shdsvci-scvariant.
+    WHERE scvariant = ls_screen_variant-shdsvci-scvariant
+    ORDER BY PRIMARY KEY.
 
     io_xml->add( iv_name = 'SCVI'
                  ig_data = ls_screen_variant ).

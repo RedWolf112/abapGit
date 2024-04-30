@@ -21,7 +21,7 @@ ENDCLASS.
 
 
 
-CLASS ZCL_ABAPGIT_OBJECT_STVI IMPLEMENTATION.
+CLASS zcl_abapgit_object_stvi IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~changed_by.
@@ -67,8 +67,6 @@ CLASS ZCL_ABAPGIT_OBJECT_STVI IMPLEMENTATION.
 
     DATA: ls_transaction_variant TYPE ty_transaction_variant.
 
-    DATA: lv_text TYPE natxt.
-
     io_xml->read(
       EXPORTING
         iv_name = 'STVI'
@@ -79,13 +77,13 @@ CLASS ZCL_ABAPGIT_OBJECT_STVI IMPLEMENTATION.
       EXPORTING
         tcvariant = ls_transaction_variant-shdtvciu-tcvariant
       EXCEPTIONS
-        OTHERS    = 01.
+        OTHERS    = 1.
     IF sy-subrc <> 0.
-      MESSAGE e413(ms) WITH ls_transaction_variant-shdtvciu-tcvariant INTO lv_text.
+      MESSAGE e413(ms) WITH ls_transaction_variant-shdtvciu-tcvariant INTO zcx_abapgit_exception=>null.
       zcx_abapgit_exception=>raise_t100( ).
     ENDIF.
 
-    corr_insert( iv_package = iv_package ).
+    corr_insert( iv_package ).
 
 *   Populate user details
     ls_transaction_variant-shdtvciu-crdate = sy-datum.
@@ -130,6 +128,11 @@ CLASS ZCL_ABAPGIT_OBJECT_STVI IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD zif_abapgit_object~get_deserialize_order.
+    RETURN.
+  ENDMETHOD.
+
+
   METHOD zif_abapgit_object~get_deserialize_steps.
 
     APPEND zif_abapgit_object=>gc_step_id-abap TO rt_steps.
@@ -159,9 +162,16 @@ CLASS ZCL_ABAPGIT_OBJECT_STVI IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~jump.
+  ENDMETHOD.
 
-    zcx_abapgit_exception=>raise( |TODO: Jump| ).
 
+  METHOD zif_abapgit_object~map_filename_to_object.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_object_to_filename.
+    RETURN.
   ENDMETHOD.
 
 
@@ -194,9 +204,10 @@ CLASS ZCL_ABAPGIT_OBJECT_STVI IMPLEMENTATION.
            ls_transaction_variant-shdtvciu-chuser.
 
     SELECT *
-    FROM shdttciu
-    INTO TABLE ls_transaction_variant-shdttciu[]
-    WHERE tcvariant = ls_transaction_variant-shdtvciu-tcvariant.
+      FROM shdttciu
+      INTO TABLE ls_transaction_variant-shdttciu[]
+      WHERE tcvariant = ls_transaction_variant-shdtvciu-tcvariant
+      ORDER BY PRIMARY KEY.
 
     io_xml->add( iv_name = 'STVI'
                  ig_data = ls_transaction_variant ).

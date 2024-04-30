@@ -7,9 +7,6 @@ CLASS zcl_abapgit_object_odso DEFINITION
   PUBLIC SECTION.
 
     INTERFACES zif_abapgit_object .
-
-    ALIASES mo_files
-      FOR zif_abapgit_object~mo_files .
   PROTECTED SECTION.
   PRIVATE SECTION.
 
@@ -22,7 +19,22 @@ CLASS zcl_abapgit_object_odso DEFINITION
 ENDCLASS.
 
 
+
 CLASS zcl_abapgit_object_odso IMPLEMENTATION.
+
+
+  METHOD clear_field.
+
+    FIELD-SYMBOLS: <lg_field> TYPE data.
+
+    ASSIGN COMPONENT iv_fieldname
+           OF STRUCTURE cg_metadata
+           TO <lg_field>.
+    ASSERT sy-subrc = 0.
+
+    CLEAR: <lg_field>.
+
+  ENDMETHOD.
 
 
   METHOD zif_abapgit_object~changed_by.
@@ -52,7 +64,7 @@ CLASS zcl_abapgit_object_odso IMPLEMENTATION.
         return    = ls_return.
 
     IF ls_return-type = 'E'.
-      zcx_abapgit_exception=>raise( |Error when geting changed by of ODSO: { ls_return-message }| ).
+      zcx_abapgit_exception=>raise( |Error when getting changed by of ODSO: { ls_return-message }| ).
     ENDIF.
 
     ASSIGN COMPONENT 'TSTPNM' OF STRUCTURE <lg_details> TO <lg_tstpnm>.
@@ -98,12 +110,8 @@ CLASS zcl_abapgit_object_odso IMPLEMENTATION.
           |Error when deleting ODSO: { ms_item-obj_name } { ls_msg-msgv1 } { ls_msg-msgv2 }| ).
         ENDIF.
 
-      CATCH cx_rs_cancelled.
+      CATCH cx_root.
         zcx_abapgit_exception=>raise( |Canceled deletion of ODSO: { ms_item-obj_name }| ).
-      CATCH cx_rs_existing.
-        zcx_abapgit_exception=>raise( |ODSO not exist: { ms_item-obj_name }| ).
-      CATCH cx_rs_not_found.
-        zcx_abapgit_exception=>raise( |ODSO not found: { ms_item-obj_name }| ).
     ENDTRY.
 
   ENDMETHOD.
@@ -122,6 +130,7 @@ CLASS zcl_abapgit_object_odso IMPLEMENTATION.
 
     FIELD-SYMBOLS:
       <lg_details>     TYPE any,
+      <lg_odsobject>   TYPE any,
       <lt_infoobjects> TYPE STANDARD TABLE,
       <lt_navigation>  TYPE STANDARD TABLE,
       <lt_indexes>     TYPE STANDARD TABLE,
@@ -137,40 +146,57 @@ CLASS zcl_abapgit_object_odso IMPLEMENTATION.
         zcx_abapgit_exception=>raise( |ODSO is not supported on this system| ).
     ENDTRY.
 
-    ASSIGN lr_details->*     TO <lg_details>.
+    ASSIGN lr_details->* TO <lg_details>.
     ASSIGN lr_infoobjects->* TO <lt_infoobjects>.
-    ASSIGN lr_navigation->*  TO <lt_navigation>.
-    ASSIGN lr_indexes->*     TO <lt_indexes>.
-    ASSIGN lr_index_iobj->*  TO <lt_index_iobj>.
+    ASSIGN lr_navigation->* TO <lt_navigation>.
+    ASSIGN lr_indexes->* TO <lt_indexes>.
+    ASSIGN lr_index_iobj->* TO <lt_index_iobj>.
 
     io_xml->read( EXPORTING iv_name = 'ODSO'
                   CHANGING  cg_data = <lg_details> ).
 
     io_xml->read( EXPORTING iv_name = 'INFOOBJECTS'
-                  CHANGING  cg_data =  <lt_infoobjects> ).
+                  CHANGING  cg_data = <lt_infoobjects> ).
 
     io_xml->read( EXPORTING iv_name = 'NAVIGATION'
-                  CHANGING  cg_data =  <lt_navigation> ).
+                  CHANGING  cg_data = <lt_navigation> ).
 
     io_xml->read( EXPORTING iv_name = 'INDEXES'
-                  CHANGING  cg_data =  <lt_indexes> ).
+                  CHANGING  cg_data = <lt_indexes> ).
 
     io_xml->read( EXPORTING iv_name = 'INDEX_IOBJ'
-                  CHANGING  cg_data =  <lt_index_iobj> ).
+                  CHANGING  cg_data = <lt_index_iobj> ).
     TRY.
-        CALL FUNCTION 'BAPI_ODSO_CREATE'
-          EXPORTING
-            details              = <lg_details>
-          IMPORTING
-            odsobject            = lv_dsonam
-          TABLES
-            infoobjects          = <lt_infoobjects>
-            navigationattributes = <lt_navigation>
-            indexes              = <lt_indexes>
-            indexesinfoobjects   = <lt_index_iobj>
-            return               = lt_return.
 
-      CATCH  cx_sy_dyn_call_illegal_func.
+        ASSIGN COMPONENT 'ODSOBJECT' OF STRUCTURE <lg_details> TO <lg_odsobject>.
+        ASSERT sy-subrc = 0.
+
+        IF zif_abapgit_object~exists( ) = abap_false.
+          CALL FUNCTION 'BAPI_ODSO_CREATE'
+            EXPORTING
+              details              = <lg_details>
+            IMPORTING
+              odsobject            = lv_dsonam
+            TABLES
+              infoobjects          = <lt_infoobjects>
+              navigationattributes = <lt_navigation>
+              indexes              = <lt_indexes>
+              indexesinfoobjects   = <lt_index_iobj>
+              return               = lt_return.
+        ELSE.
+          CALL FUNCTION 'BAPI_ODSO_CHANGE'
+            EXPORTING
+              odsobject            = <lg_odsobject>
+              details              = <lg_details>
+            TABLES
+              infoobjects          = <lt_infoobjects>
+              navigationattributes = <lt_navigation>
+              indexes              = <lt_indexes>
+              indexesinfoobjects   = <lt_index_iobj>
+              return               = lt_return.
+        ENDIF.
+
+      CATCH cx_sy_dyn_call_illegal_func.
         zcx_abapgit_exception=>raise( |Necessary BW function modules not found or object not supported| ).
     ENDTRY.
 
@@ -181,7 +207,7 @@ CLASS zcl_abapgit_object_odso IMPLEMENTATION.
 
     CALL FUNCTION 'BAPI_ODSO_ACTIVATE'
       EXPORTING
-        odsobject = lv_dsonam
+        odsobject = <lg_odsobject>
       TABLES
         return    = lt_return.
 
@@ -212,6 +238,11 @@ CLASS zcl_abapgit_object_odso IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~get_comparator.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~get_deserialize_order.
     RETURN.
   ENDMETHOD.
 
@@ -253,7 +284,7 @@ CLASS zcl_abapgit_object_odso IMPLEMENTATION.
 
     DATA: lv_object TYPE eqegraarg.
 
-    lv_object =  ms_item-obj_name.
+    lv_object = ms_item-obj_name.
     OVERLAY lv_object WITH '                                          '.
     lv_object = lv_object && '*'.
 
@@ -264,7 +295,17 @@ CLASS zcl_abapgit_object_odso IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~jump.
-    zcx_abapgit_exception=>raise( |Jump to ODSO is not yet supported| ).
+    " Covered by ZCL_ABAPGIT_OBJECTS=>JUMP
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_filename_to_object.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_object_to_filename.
+    RETURN.
   ENDMETHOD.
 
 
@@ -295,11 +336,11 @@ CLASS zcl_abapgit_object_odso IMPLEMENTATION.
         zcx_abapgit_exception=>raise( |ODSO is not supported on this system| ).
     ENDTRY.
 
-    ASSIGN lr_details->*     TO <lg_details>.
+    ASSIGN lr_details->* TO <lg_details>.
     ASSIGN lr_infoobjects->* TO <lt_infoobjects>.
-    ASSIGN lr_navigation->*  TO <lt_navigation>.
-    ASSIGN lr_indexes->*     TO <lt_indexes>.
-    ASSIGN lr_index_iobj->*  TO <lt_index_iobj>.
+    ASSIGN lr_navigation->* TO <lt_navigation>.
+    ASSIGN lr_indexes->* TO <lt_indexes>.
+    ASSIGN lr_index_iobj->* TO <lt_index_iobj>.
 
     lv_dsonam = ms_item-obj_name.
 
@@ -316,7 +357,7 @@ CLASS zcl_abapgit_object_odso IMPLEMENTATION.
         indexesinfoobjects   = <lt_index_iobj>.
 
     IF ls_return-type = 'E'.
-      zcx_abapgit_exception=>raise( |Error when geting details of ODSO: { ls_return-message }| ).
+      zcx_abapgit_exception=>raise( |Error when getting details of ODSO: { ls_return-message }| ).
     ENDIF.
 
     clear_field( EXPORTING iv_fieldname = 'TSTPNM'
@@ -345,19 +386,6 @@ CLASS zcl_abapgit_object_odso IMPLEMENTATION.
 
     io_xml->add( iv_name = 'INDEX_IOBJ'
                  ig_data = <lt_index_iobj> ).
-
-  ENDMETHOD.
-
-  METHOD clear_field.
-
-    FIELD-SYMBOLS: <lg_field> TYPE data.
-
-    ASSIGN COMPONENT iv_fieldname
-           OF STRUCTURE cg_metadata
-           TO <lg_field>.
-    ASSERT sy-subrc = 0.
-
-    CLEAR: <lg_field>.
 
   ENDMETHOD.
 ENDCLASS.

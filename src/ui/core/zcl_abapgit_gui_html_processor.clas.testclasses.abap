@@ -29,6 +29,10 @@ CLASS ltcl_gui_mock IMPLEMENTATION.
   ENDMETHOD.
   METHOD zif_abapgit_gui_services~get_html_parts.
   ENDMETHOD.
+  METHOD zif_abapgit_gui_services~get_log.
+  ENDMETHOD.
+  METHOD zif_abapgit_gui_services~register_page_asset.
+  ENDMETHOD.
 
   METHOD get_asset.
     rs_asset = ms_last_cache_signature.
@@ -56,7 +60,7 @@ CLASS ltcl_html_processor_test DEFINITION
       RETURNING
         VALUE(rv_html) TYPE string.
 
-    METHODS setup.
+    METHODS setup RAISING zcx_abapgit_exception.
     METHODS process_typical FOR TESTING RAISING zcx_abapgit_exception.
     METHODS process_with_preserve FOR TESTING RAISING zcx_abapgit_exception.
     METHODS process_no_css FOR TESTING RAISING zcx_abapgit_exception.
@@ -73,22 +77,23 @@ CLASS ltcl_html_processor_test IMPLEMENTATION.
 
   METHOD setup.
 
-    DATA lo_asset_man TYPE REF TO zcl_abapgit_gui_asset_manager.
+    DATA li_asset_man TYPE REF TO zif_abapgit_gui_asset_manager.
 
-    CREATE OBJECT lo_asset_man.
-    lo_asset_man->register_asset( iv_url = 'css/style1.css'
+    li_asset_man = zcl_abapgit_gui_asset_manager=>create( ).
+
+    li_asset_man->register_asset( iv_url = 'css/style1.css'
                                   iv_type = 'text/css'
                                   iv_inline = 'dummy1' ).
-    lo_asset_man->register_asset( iv_url = 'css/style2.css'
+    li_asset_man->register_asset( iv_url = 'css/style2.css'
                                   iv_type = 'text/css'
                                   iv_inline = 'dummy2' ).
-    lo_asset_man->register_asset( iv_url = 'css/style3.css'
+    li_asset_man->register_asset( iv_url = 'css/style3.css'
                                   iv_type = 'text/css'
                                   iv_inline = 'dummy3' ).
 
     CREATE OBJECT mo_cut
       EXPORTING
-        ii_asset_man = lo_asset_man.
+        ii_asset_man = li_asset_man.
 
     CREATE OBJECT mo_gui_mock.
 
@@ -124,7 +129,7 @@ CLASS ltcl_html_processor_test IMPLEMENTATION.
         `    <!--<link rel="stylesheet" type="text/css" href="css/style2.css">-->\n` &&
         `    <!--<link rel="stylesheet" type="text/css" href="css/style3.css">-->\n` &&
         `    <script type="text/javascript" src="js/common.js"></script>\n` &&
-        `    <!-- abapgit HTML preprocessor -->\n` &&
+        `    <!-- abapGit HTML preprocessor -->\n` &&
         `    <link rel="stylesheet" type="text/css" href="css/bundle.css">\n` &&
         `  </head>\n` &&
         `  <body>hello</body>\n` &&
@@ -163,7 +168,7 @@ CLASS ltcl_html_processor_test IMPLEMENTATION.
         `    <link rel="stylesheet" type="text/css" href="css/style2.css">\n` && " Preserved
         `    <!--<link rel="stylesheet" type="text/css" href="css/style3.css">-->\n` &&
         `    <script type="text/javascript" src="js/common.js"></script>\n` &&
-        `    <!-- abapgit HTML preprocessor -->\n` &&
+        `    <!-- abapGit HTML preprocessor -->\n` &&
         `    <link rel="stylesheet" type="text/css" href="css/bundle.css">\n` &&
         `  </head>\n` &&
         `  <body>hello</body>\n` &&
@@ -212,7 +217,7 @@ CLASS ltcl_html_processor_test IMPLEMENTATION.
 
     "when
     TRY.
-        lv_head_end = mo_cut->find_head_offset( iv_html = lv_html ).
+        lv_head_end = mo_cut->find_head_offset( lv_html ).
       CATCH zcx_abapgit_exception.
         cl_abap_unit_assert=>fail( msg = 'HEAD closing tag could not be found' ).
     ENDTRY.

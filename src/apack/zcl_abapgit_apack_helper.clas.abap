@@ -4,57 +4,76 @@ CLASS zcl_abapgit_apack_helper DEFINITION
   CREATE PUBLIC .
 
   PUBLIC SECTION.
+
     CLASS-METHODS are_dependencies_met
       IMPORTING
-        !it_dependencies TYPE zif_abapgit_apack_definitions=>tt_dependencies
+        !it_dependencies TYPE zif_abapgit_apack_definitions=>ty_dependencies
       RETURNING
         VALUE(rv_status) TYPE zif_abapgit_definitions=>ty_yes_no
       RAISING
-        zcx_abapgit_exception.
-
+        zcx_abapgit_exception .
     CLASS-METHODS dependencies_popup
       IMPORTING
-        !it_dependencies TYPE zif_abapgit_apack_definitions=>tt_dependencies
+        !it_dependencies TYPE zif_abapgit_apack_definitions=>ty_dependencies
       RAISING
-        zcx_abapgit_exception.
+        zcx_abapgit_exception .
+    CLASS-METHODS to_file
+      IMPORTING
+        !iv_package    TYPE devclass
+      RETURNING
+        VALUE(rs_file) TYPE zif_abapgit_git_definitions=>ty_file
+      RAISING
+        zcx_abapgit_exception .
+
+    CLASS-METHODS get_manifest_implementations
+      RETURNING
+        VALUE(rt_manifest_implementations) TYPE zif_abapgit_apack_definitions=>ty_manifest_declarations.
 
   PROTECTED SECTION.
   PRIVATE SECTION.
 
     TYPES:
-      BEGIN OF ty_manifest_declaration,
-        clsname  TYPE seometarel-clsname,
-        devclass TYPE devclass,
-      END OF ty_manifest_declaration,
-      tt_manifest_declaration TYPE STANDARD TABLE OF ty_manifest_declaration WITH NON-UNIQUE DEFAULT KEY.
-
-    TYPES:
       BEGIN OF ty_dependency_status,
         met TYPE zif_abapgit_definitions=>ty_yes_no_partial.
         INCLUDE TYPE zif_abapgit_apack_definitions=>ty_dependency.
-    TYPES: END OF ty_dependency_status,
-      tt_dependency_status TYPE STANDARD TABLE OF ty_dependency_status WITH NON-UNIQUE DEFAULT KEY.
+    TYPES: END OF ty_dependency_status .
+    TYPES:
+      ty_dependency_statuses TYPE STANDARD TABLE OF ty_dependency_status WITH NON-UNIQUE DEFAULT KEY .
+    TYPES:
+      BEGIN OF ty_color_line,
+        exception(1) TYPE c,
+        color        TYPE lvc_t_scol.
+        INCLUDE TYPE ty_dependency_status.
+    TYPES: t_hyperlink  TYPE salv_t_int4_column,
+      END OF ty_color_line.
+
+    TYPES: ty_color_tab TYPE STANDARD TABLE OF ty_color_line WITH DEFAULT KEY.
 
     CLASS-METHODS get_dependencies_met_status
       IMPORTING
-        !it_dependencies TYPE zif_abapgit_apack_definitions=>tt_dependencies
+        !it_dependencies TYPE zif_abapgit_apack_definitions=>ty_dependencies
       RETURNING
-        VALUE(rt_status) TYPE tt_dependency_status
+        VALUE(rt_status) TYPE ty_dependency_statuses
       RAISING
-        zcx_abapgit_exception.
-
+        zcx_abapgit_exception .
     CLASS-METHODS get_installed_packages
       RETURNING
-        VALUE(rt_packages) TYPE zif_abapgit_apack_definitions=>tt_descriptor
+        VALUE(rt_packages) TYPE zif_abapgit_apack_definitions=>ty_descriptors
       RAISING
-        zcx_abapgit_exception.
-
+        zcx_abapgit_exception .
     CLASS-METHODS show_dependencies_popup
       IMPORTING
-        !it_dependencies TYPE tt_dependency_status
+        !it_dependencies TYPE ty_dependency_statuses
       RAISING
-        zcx_abapgit_exception.
-
+        zcx_abapgit_exception .
+    CLASS-METHODS get_color_table
+      IMPORTING
+        !io_alv          TYPE REF TO cl_salv_table
+        !it_dependencies TYPE ty_dependency_statuses
+      CHANGING
+        !ct_color_table  TYPE ty_color_tab
+      RAISING
+        cx_salv_existing.
 ENDCLASS.
 
 
@@ -64,23 +83,23 @@ CLASS zcl_abapgit_apack_helper IMPLEMENTATION.
 
   METHOD are_dependencies_met.
 
-    DATA: lt_dependencies_status TYPE tt_dependency_status.
+    DATA: lt_dependencies_status TYPE ty_dependency_statuses.
 
     IF it_dependencies IS INITIAL.
-      rv_status = zif_abapgit_definitions=>gc_yes.
+      rv_status = zif_abapgit_definitions=>c_yes.
       RETURN.
     ENDIF.
 
     lt_dependencies_status = get_dependencies_met_status( it_dependencies ).
 
-    LOOP AT lt_dependencies_status TRANSPORTING NO FIELDS WHERE met <> 'Y'.
+    LOOP AT lt_dependencies_status TRANSPORTING NO FIELDS WHERE met <> zif_abapgit_definitions=>c_yes.
       EXIT.
     ENDLOOP.
 
     IF sy-subrc = 0.
-      rv_status = zif_abapgit_definitions=>gc_no.
+      rv_status = zif_abapgit_definitions=>c_no.
     ELSE.
-      rv_status = zif_abapgit_definitions=>gc_yes.
+      rv_status = zif_abapgit_definitions=>c_yes.
     ENDIF.
 
   ENDMETHOD.
@@ -88,18 +107,92 @@ CLASS zcl_abapgit_apack_helper IMPLEMENTATION.
 
   METHOD dependencies_popup.
 
-    DATA: lt_met_status TYPE tt_dependency_status.
+    DATA: lt_met_status TYPE ty_dependency_statuses,
+          lv_answer     TYPE c LENGTH 1.
 
     lt_met_status = get_dependencies_met_status( it_dependencies ).
 
     show_dependencies_popup( lt_met_status ).
+
+    lv_answer = zcl_abapgit_ui_factory=>get_popups( )->popup_to_confirm(
+      iv_titlebar      = 'Warning'
+      iv_text_question = 'The project has unmet dependencies. Do you want to continue?' ).
+
+    IF lv_answer <> '1'.
+      zcx_abapgit_exception=>raise( 'Cancelling because of unmet dependencies.' ).
+    ENDIF.
+
+  ENDMETHOD.
+
+
+  METHOD get_color_table.
+
+    DATA:
+      lo_functional_settings TYPE REF TO cl_salv_functional_settings,
+      lo_hyperlinks          TYPE REF TO cl_salv_hyperlinks,
+      lt_color_negative      TYPE lvc_t_scol,
+      lt_color_normal        TYPE lvc_t_scol,
+      lt_color_positive      TYPE lvc_t_scol,
+      ls_color               TYPE lvc_s_scol,
+      lv_handle              TYPE i,
+      ls_hyperlink           TYPE salv_s_int4_column,
+      lv_hyperlink           TYPE service_rl.
+
+    FIELD-SYMBOLS:
+      <ls_line>       TYPE ty_color_line,
+      <ls_dependency> LIKE LINE OF it_dependencies.
+
+    CLEAR: ls_color.
+    ls_color-color-col = col_negative.
+    APPEND ls_color TO lt_color_negative.
+
+    CLEAR: ls_color.
+    ls_color-color-col = col_normal.
+    APPEND ls_color TO lt_color_normal.
+
+    CLEAR: ls_color.
+    ls_color-color-col = col_positive.
+    APPEND ls_color TO lt_color_positive.
+
+    lo_functional_settings = io_alv->get_functional_settings( ).
+    lo_hyperlinks = lo_functional_settings->get_hyperlinks( ).
+
+    CLEAR: lv_handle, ls_color.
+    LOOP AT it_dependencies ASSIGNING <ls_dependency>.
+      lv_handle = lv_handle + 1.
+
+      APPEND INITIAL LINE TO ct_color_table ASSIGNING <ls_line>.
+      MOVE-CORRESPONDING <ls_dependency> TO <ls_line>.
+
+      CASE <ls_line>-met.
+        WHEN zif_abapgit_definitions=>c_yes.
+          <ls_line>-color     = lt_color_positive.
+          <ls_line>-exception = '3'.
+        WHEN zif_abapgit_definitions=>c_partial.
+          <ls_line>-color     = lt_color_normal.
+          <ls_line>-exception = '2'.
+        WHEN zif_abapgit_definitions=>c_no.
+          <ls_line>-color     = lt_color_negative.
+          <ls_line>-exception = '1'.
+      ENDCASE.
+
+      CLEAR: ls_hyperlink.
+      ls_hyperlink-columnname = 'GIT_URL'.
+      ls_hyperlink-value      = lv_handle.
+      APPEND ls_hyperlink TO <ls_line>-t_hyperlink.
+
+      lv_hyperlink = <ls_line>-git_url.
+      lo_hyperlinks->add_hyperlink( handle    = lv_handle
+                                    hyperlink = lv_hyperlink ).
+
+    ENDLOOP.
 
   ENDMETHOD.
 
 
   METHOD get_dependencies_met_status.
 
-    DATA: lt_installed_packages TYPE zif_abapgit_apack_definitions=>tt_descriptor,
+    DATA: lt_installed_packages TYPE zif_abapgit_apack_definitions=>ty_descriptors,
           ls_installed_package  TYPE zif_abapgit_apack_definitions=>ty_descriptor,
           ls_dependecy          TYPE zif_abapgit_apack_definitions=>ty_dependency,
           ls_dependecy_popup    TYPE ty_dependency_status.
@@ -119,14 +212,14 @@ CLASS zcl_abapgit_apack_helper IMPLEMENTATION.
         WITH KEY group_id    = ls_dependecy-group_id
                  artifact_id = ls_dependecy-artifact_id.
       IF sy-subrc <> 0.
-        ls_dependecy_popup-met = zif_abapgit_definitions=>gc_no.
+        ls_dependecy_popup-met = zif_abapgit_definitions=>c_no.
       ELSE.
         TRY.
             zcl_abapgit_version=>check_dependant_version( is_current   = ls_installed_package-sem_version
                                                           is_dependant = ls_dependecy-sem_version ).
-            ls_dependecy_popup-met = zif_abapgit_definitions=>gc_yes.
+            ls_dependecy_popup-met = zif_abapgit_definitions=>c_yes.
           CATCH zcx_abapgit_exception.
-            ls_dependecy_popup-met = zif_abapgit_definitions=>gc_partial.
+            ls_dependecy_popup-met = zif_abapgit_definitions=>c_partial.
         ENDTRY.
       ENDIF.
 
@@ -140,18 +233,12 @@ CLASS zcl_abapgit_apack_helper IMPLEMENTATION.
   METHOD get_installed_packages.
 
     DATA: lo_apack_reader            TYPE REF TO zcl_abapgit_apack_reader,
-          lt_manifest_implementation TYPE tt_manifest_declaration,
-          ls_manifest_implementation TYPE ty_manifest_declaration,
+          lt_manifest_implementation TYPE zif_abapgit_apack_definitions=>ty_manifest_declarations,
+          ls_manifest_implementation TYPE zif_abapgit_apack_definitions=>ty_manifest_declaration,
           lo_manifest_provider       TYPE REF TO object,
           ls_descriptor              TYPE zif_abapgit_apack_definitions=>ty_descriptor.
 
-    SELECT seometarel~clsname tadir~devclass FROM seometarel "#EC CI_NOORDER
-       INNER JOIN tadir ON seometarel~clsname = tadir~obj_name "#EC CI_BUFFJOIN
-       INTO TABLE lt_manifest_implementation
-       WHERE tadir~pgmid = 'R3TR'
-         AND tadir~object = 'CLAS'
-         AND seometarel~version = '1'
-         AND ( seometarel~refclsname = 'ZIF_APACK_MANIFEST' OR seometarel~refclsname = 'IF_APACK_MANIFEST' ).
+    lt_manifest_implementation = get_manifest_implementations( ).
 
     LOOP AT lt_manifest_implementation INTO ls_manifest_implementation.
       CLEAR: lo_manifest_provider, lo_apack_reader.
@@ -167,7 +254,7 @@ CLASS zcl_abapgit_apack_helper IMPLEMENTATION.
       ENDIF.
 
       lo_apack_reader = zcl_abapgit_apack_reader=>create_instance( ls_manifest_implementation-devclass ).
-      lo_apack_reader->copy_manifest_descriptor( io_manifest_provider = lo_manifest_provider ).
+      lo_apack_reader->copy_manifest_descriptor( lo_manifest_provider ).
       ls_descriptor = lo_apack_reader->get_manifest_descriptor( ).
 
       IF ls_descriptor IS NOT INITIAL.
@@ -179,61 +266,58 @@ CLASS zcl_abapgit_apack_helper IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD get_manifest_implementations.
+
+    DATA lt_refclsname TYPE RANGE OF abap_classname.
+    DATA ls_refclsname LIKE LINE OF lt_refclsname.
+
+    ls_refclsname-sign   = 'I'.
+    ls_refclsname-option = 'EQ'.
+    ls_refclsname-low    = zif_abapgit_apack_definitions=>c_apack_interface_cust.
+    INSERT ls_refclsname INTO TABLE lt_refclsname.
+
+    ls_refclsname-sign   = 'I'.
+    ls_refclsname-option = 'EQ'.
+    ls_refclsname-low    = zif_abapgit_apack_definitions=>c_apack_interface_sap.
+    INSERT ls_refclsname INTO TABLE lt_refclsname.
+
+    ls_refclsname-sign   = 'I'.
+    ls_refclsname-option = 'CP'.
+    ls_refclsname-low    = zif_abapgit_apack_definitions=>c_apack_interface_nspc.
+    INSERT ls_refclsname INTO TABLE lt_refclsname.
+
+    " Find all classes that implement customer or SAP version of APACK interface
+    SELECT seometarel~clsname tadir~devclass FROM seometarel "#EC CI_NOORDER
+      INNER JOIN tadir ON seometarel~clsname = tadir~obj_name "#EC CI_BUFFJOIN
+      INTO TABLE rt_manifest_implementations
+      WHERE tadir~pgmid           = 'R3TR'
+        AND tadir~object          = 'CLAS'
+        AND seometarel~version    = '1'
+        AND seometarel~refclsname IN lt_refclsname
+       ORDER BY clsname devclass ##SUBRC_OK.
+
+  ENDMETHOD.
+
+
   METHOD show_dependencies_popup.
 
-    TYPES:
-      BEGIN OF lty_color_line,
-        exception(1) TYPE c,
-        color        TYPE lvc_t_scol.
-        INCLUDE TYPE ty_dependency_status.
-    TYPES: t_hyperlink  TYPE salv_t_int4_column,
-      END OF lty_color_line.
-
-    TYPES: lty_color_tab TYPE STANDARD TABLE OF lty_color_line WITH DEFAULT KEY.
-
-    DATA: lo_alv                 TYPE REF TO cl_salv_table,
-          lo_functional_settings TYPE REF TO cl_salv_functional_settings,
-          lo_hyperlinks          TYPE REF TO cl_salv_hyperlinks,
-          lo_column              TYPE REF TO cl_salv_column,
-          lo_column_table        TYPE REF TO cl_salv_column_table,
-          lo_columns             TYPE REF TO cl_salv_columns_table,
-          lt_columns             TYPE salv_t_column_ref,
-          ls_column              LIKE LINE OF lt_columns,
-          lt_color_table         TYPE lty_color_tab,
-          lt_color_negative      TYPE lvc_t_scol,
-          lt_color_normal        TYPE lvc_t_scol,
-          lt_color_positive      TYPE lvc_t_scol,
-          ls_color               TYPE lvc_s_scol,
-          lv_handle              TYPE i,
-          ls_hyperlink           TYPE salv_s_int4_column,
-          lv_hyperlink           TYPE service_rl,
-          lx_ex                  TYPE REF TO cx_root.
-
-    FIELD-SYMBOLS: <ls_line>       TYPE lty_color_line,
-                   <ls_dependency> LIKE LINE OF it_dependencies.
+    DATA: lo_alv          TYPE REF TO cl_salv_table,
+          lo_column       TYPE REF TO cl_salv_column,
+          lo_column_table TYPE REF TO cl_salv_column_table,
+          lo_columns      TYPE REF TO cl_salv_columns_table,
+          lt_columns      TYPE salv_t_column_ref,
+          ls_column       LIKE LINE OF lt_columns,
+          lt_color_table  TYPE ty_color_tab,
+          ls_position     TYPE zif_abapgit_popups=>ty_popup_position,
+          lx_ex           TYPE REF TO cx_root.
 
     IF it_dependencies IS INITIAL.
       RETURN.
     ENDIF.
 
-    CLEAR: ls_color.
-    ls_color-color-col = col_negative.
-    APPEND ls_color TO lt_color_negative.
-
-    CLEAR: ls_color.
-    ls_color-color-col = col_normal.
-    APPEND ls_color TO lt_color_normal.
-
-    CLEAR: ls_color.
-    ls_color-color-col = col_positive.
-    APPEND ls_color TO lt_color_positive.
-
     TRY.
         cl_salv_table=>factory( IMPORTING r_salv_table  = lo_alv
                                 CHANGING  t_table       = lt_color_table ).
-
-        lo_functional_settings = lo_alv->get_functional_settings( ).
-        lo_hyperlinks = lo_functional_settings->get_hyperlinks( ).
 
         lo_columns = lo_alv->get_columns( ).
         lt_columns = lo_columns->get( ).
@@ -264,51 +348,28 @@ CLASS zcl_abapgit_apack_helper IMPLEMENTATION.
         lo_column_table ?= lo_column.
         lo_column_table->set_cell_type( if_salv_c_cell_type=>link ).
 
-
         lo_column = lo_columns->get_column( 'VERSION' ).
         lo_column->set_short_text( 'Version' ).
 
         lo_column = lo_columns->get_column( 'TARGET_PACKAGE' ).
         lo_column->set_technical( ).
 
-        lo_hyperlinks = lo_functional_settings->get_hyperlinks( ).
+        get_color_table(
+          EXPORTING
+            io_alv          = lo_alv
+            it_dependencies = it_dependencies
+          CHANGING
+            ct_color_table  = lt_color_table ).
 
-        CLEAR: lv_handle, ls_color.
-        LOOP AT it_dependencies ASSIGNING <ls_dependency>.
-          lv_handle = lv_handle + 1.
+        ls_position = zcl_abapgit_popups=>center(
+          iv_width  = 90
+          iv_height = 10 ).
 
-          APPEND INITIAL LINE TO lt_color_table ASSIGNING <ls_line>.
-          MOVE-CORRESPONDING <ls_dependency> TO <ls_line>.
+        lo_alv->set_screen_popup( start_column = ls_position-start_column
+                                  end_column   = ls_position-end_column
+                                  start_line   = ls_position-start_row
+                                  end_line     = ls_position-end_row ).
 
-          CASE <ls_line>-met.
-            WHEN zif_abapgit_definitions=>gc_yes.
-              <ls_line>-color     = lt_color_positive.
-              <ls_line>-exception = '3'.
-            WHEN zif_abapgit_definitions=>gc_partial.
-              <ls_line>-color     = lt_color_normal.
-              <ls_line>-exception = '2'.
-            WHEN zif_abapgit_definitions=>gc_no.
-              <ls_line>-color     = lt_color_negative.
-              <ls_line>-exception = '1'.
-          ENDCASE.
-
-          CLEAR: ls_hyperlink.
-          ls_hyperlink-columnname = 'GIT_URL'.
-          ls_hyperlink-value      = lv_handle.
-          APPEND ls_hyperlink TO <ls_line>-t_hyperlink.
-
-          lv_hyperlink = <ls_line>-git_url.
-          lo_hyperlinks->add_hyperlink( handle    = lv_handle
-                                        hyperlink = lv_hyperlink ).
-
-        ENDLOOP.
-
-        UNASSIGN <ls_line>.
-
-        lo_alv->set_screen_popup( start_column = 30
-                                  end_column   = 120
-                                  start_line   = 10
-                                  end_line     = 20 ).
         lo_alv->get_display_settings( )->set_list_header( 'APACK dependencies' ).
         lo_alv->display( ).
 
@@ -319,4 +380,21 @@ CLASS zcl_abapgit_apack_helper IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD to_file.
+
+    DATA: lo_manifest_reader TYPE REF TO zcl_abapgit_apack_reader,
+          ls_descriptor      TYPE zif_abapgit_apack_definitions=>ty_descriptor,
+          lo_manifest_writer TYPE REF TO zcl_abapgit_apack_writer.
+
+    lo_manifest_reader = zcl_abapgit_apack_reader=>create_instance( iv_package ).
+    IF lo_manifest_reader->has_manifest( ) = abap_true.
+      ls_descriptor = lo_manifest_reader->get_manifest_descriptor( ).
+      lo_manifest_writer = zcl_abapgit_apack_writer=>create_instance( ls_descriptor ).
+      rs_file-path     = zif_abapgit_definitions=>c_root_dir.
+      rs_file-filename = zif_abapgit_apack_definitions=>c_dot_apack_manifest.
+      rs_file-data     = zcl_abapgit_convert=>string_to_xstring_utf8( lo_manifest_writer->serialize( ) ).
+      rs_file-sha1     = zcl_abapgit_hash=>sha1_blob( rs_file-data ).
+    ENDIF.
+
+  ENDMETHOD.
 ENDCLASS.

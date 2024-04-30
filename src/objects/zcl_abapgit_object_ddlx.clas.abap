@@ -2,7 +2,7 @@ CLASS zcl_abapgit_object_ddlx DEFINITION PUBLIC INHERITING FROM zcl_abapgit_obje
 
   PUBLIC SECTION.
     INTERFACES zif_abapgit_object.
-    ALIASES mo_files FOR zif_abapgit_object~mo_files.
+  PROTECTED SECTION.
   PRIVATE SECTION.
     DATA mi_persistence TYPE REF TO if_wb_object_persist .
     METHODS get_persistence
@@ -32,9 +32,9 @@ CLASS zcl_abapgit_object_ddlx IMPLEMENTATION.
     ASSIGN COMPONENT iv_fieldname
            OF STRUCTURE cg_metadata
            TO <lg_field>.
-    ASSERT sy-subrc = 0.
-
-    CLEAR: <lg_field>.
+    IF sy-subrc = 0.
+      CLEAR: <lg_field>.
+    ENDIF.
 
   ENDMETHOD.
 
@@ -78,6 +78,11 @@ CLASS zcl_abapgit_object_ddlx IMPLEMENTATION.
     clear_field( EXPORTING iv_fieldname = 'MASTER_SYSTEM'
                  CHANGING  cg_metadata  = <lg_metadata> ).
 
+    clear_field( EXPORTING iv_fieldname = 'ABAP_LANGUAGE_VERSION'
+                 CHANGING  cg_metadata  = <lg_metadata> ).
+    clear_field( EXPORTING iv_fieldname = 'ABAP_LANGU_VERSION'
+                 CHANGING  cg_metadata  = <lg_metadata> ).
+
   ENDMETHOD.
 
 
@@ -94,8 +99,7 @@ CLASS zcl_abapgit_object_ddlx IMPLEMENTATION.
         ENDIF.
 
       CATCH cx_root INTO lx_error.
-        zcx_abapgit_exception=>raise( iv_text     = lx_error->get_text( )
-                                      ix_previous = lx_error ).
+        zcx_abapgit_exception=>raise_with_text( lx_error ).
     ENDTRY.
 
     ri_persistence = mi_persistence.
@@ -104,7 +108,46 @@ CLASS zcl_abapgit_object_ddlx IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~changed_by.
-    rv_user = c_user_unknown.
+
+    DATA:
+      lv_object_key  TYPE seu_objkey,
+      li_data_model  TYPE REF TO if_wb_object_data_model,
+      li_persistence TYPE REF TO if_wb_object_persist,
+      lr_data        TYPE REF TO data.
+
+    FIELD-SYMBOLS:
+      <lg_data>       TYPE any,
+      <lg_changed_by> TYPE data.
+
+    lv_object_key = ms_item-obj_name.
+
+    TRY.
+        CREATE DATA lr_data
+          TYPE ('CL_DDLX_WB_OBJECT_DATA=>TY_OBJECT_DATA').
+        ASSIGN lr_data->* TO <lg_data>.
+
+        CREATE OBJECT li_data_model
+          TYPE ('CL_DDLX_WB_OBJECT_DATA').
+
+        li_persistence = get_persistence( ).
+
+        li_persistence->get(
+          EXPORTING
+            p_object_key  = lv_object_key
+            p_version     = swbm_version_active
+          CHANGING
+            p_object_data = li_data_model ).
+      CATCH cx_root.
+        rv_user = c_user_unknown.
+        RETURN.
+    ENDTRY.
+
+    li_data_model->get_data( IMPORTING p_data = <lg_data> ).
+
+    ASSIGN COMPONENT 'METADATA-CHANGED_BY' OF STRUCTURE <lg_data> TO <lg_changed_by>.
+    ASSERT sy-subrc = 0.
+    rv_user = <lg_changed_by>.
+
   ENDMETHOD.
 
 
@@ -122,9 +165,10 @@ CLASS zcl_abapgit_object_ddlx IMPLEMENTATION.
                                     p_version    = swbm_version_active ).
 
       CATCH cx_root INTO lx_error.
-        zcx_abapgit_exception=>raise( iv_text     = lx_error->get_text( )
-                                      ix_previous = lx_error->previous ).
+        zcx_abapgit_exception=>raise_with_text( lx_error ).
     ENDTRY.
+
+    corr_insert( iv_package ).
 
   ENDMETHOD.
 
@@ -135,10 +179,12 @@ CLASS zcl_abapgit_object_ddlx IMPLEMENTATION.
           lr_data       TYPE REF TO data,
           lx_error      TYPE REF TO cx_root.
 
-    FIELD-SYMBOLS: <lg_data>    TYPE any,
-                   <lg_source>  TYPE data,
-                   <lg_version> TYPE data,
-                   <lg_package> TYPE data.
+    FIELD-SYMBOLS: <lg_data>       TYPE any,
+                   <lg_source>     TYPE data,
+                   <lg_version>    TYPE data,
+                   <lg_package>    TYPE data,
+                   <lg_changed_by> TYPE syuname,
+                   <lg_changed_at> TYPE xsddatetime_z.
 
     TRY.
         CREATE DATA lr_data
@@ -157,7 +203,7 @@ CLASS zcl_abapgit_object_ddlx IMPLEMENTATION.
         TRY.
             " If the file doesn't exist that's ok, because previously
             " the source code was stored in the xml. We are downward compatible.
-            <lg_source> = mo_files->read_string( 'asddlxs' ) ##no_text.
+            <lg_source> = mo_files->read_string( 'asddlxs' ).
           CATCH zcx_abapgit_exception ##NO_HANDLER.
         ENDTRY.
 
@@ -177,6 +223,15 @@ CLASS zcl_abapgit_object_ddlx IMPLEMENTATION.
           <lg_package> = iv_package.
         ENDIF.
 
+        ASSIGN COMPONENT 'METADATA-CHANGED_BY' OF STRUCTURE <lg_data> TO <lg_changed_by>.
+        IF <lg_changed_by> IS ASSIGNED.
+          <lg_changed_by> = sy-uname.
+        ENDIF.
+        ASSIGN COMPONENT 'METADATA-CHANGED_AT' OF STRUCTURE <lg_data> TO <lg_changed_at>.
+        IF <lg_changed_at> IS ASSIGNED.
+          GET TIME STAMP FIELD <lg_changed_at>.
+        ENDIF.
+
         li_data_model->set_data( <lg_data> ).
 
         get_persistence( )->save( li_data_model ).
@@ -184,8 +239,7 @@ CLASS zcl_abapgit_object_ddlx IMPLEMENTATION.
         tadir_insert( iv_package ).
 
       CATCH cx_root INTO lx_error.
-        zcx_abapgit_exception=>raise( iv_text     = lx_error->get_text( )
-                                      ix_previous = lx_error->previous ).
+        zcx_abapgit_exception=>raise_with_text( lx_error ).
     ENDTRY.
 
     zcl_abapgit_objects_activation=>add_item( ms_item ).
@@ -218,6 +272,11 @@ CLASS zcl_abapgit_object_ddlx IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD zif_abapgit_object~get_deserialize_order.
+    RETURN.
+  ENDMETHOD.
+
+
   METHOD zif_abapgit_object~get_deserialize_steps.
     APPEND zif_abapgit_object=>gc_step_id-abap TO rt_steps.
   ENDMETHOD.
@@ -225,7 +284,6 @@ CLASS zcl_abapgit_object_ddlx IMPLEMENTATION.
 
   METHOD zif_abapgit_object~get_metadata.
     rs_metadata = get_metadata( ).
-    rs_metadata-delete_tadir = abap_true.
   ENDMETHOD.
 
 
@@ -243,15 +301,17 @@ CLASS zcl_abapgit_object_ddlx IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~jump.
+    " Covered by ZCL_ABAPGIT_ADT_LINK=>JUMP
+  ENDMETHOD.
 
-    TRY.
-        jump_adt( iv_obj_name = ms_item-obj_name
-                  iv_obj_type = ms_item-obj_type ).
 
-      CATCH zcx_abapgit_exception.
-        zcx_abapgit_exception=>raise( 'DDLX Jump Error' ).
-    ENDTRY.
+  METHOD zif_abapgit_object~map_filename_to_object.
+    RETURN.
+  ENDMETHOD.
 
+
+  METHOD zif_abapgit_object~map_object_to_filename.
+    RETURN.
   ENDMETHOD.
 
 
@@ -312,8 +372,9 @@ CLASS zcl_abapgit_object_ddlx IMPLEMENTATION.
         ASSIGN COMPONENT 'CONTENT-SOURCE' OF STRUCTURE <lg_data> TO <lg_field>.
         ASSERT sy-subrc = 0.
 
-        mo_files->add_string( iv_ext    = 'asddlxs'
-                              iv_string = <lg_field> ).
+        mo_files->add_string(
+          iv_ext    = 'asddlxs'
+          iv_string = <lg_field> ).
 
         CLEAR <lg_field>.
 
@@ -321,8 +382,7 @@ CLASS zcl_abapgit_object_ddlx IMPLEMENTATION.
                      ig_data = <lg_data> ).
 
       CATCH cx_root INTO lx_error.
-        zcx_abapgit_exception=>raise( iv_text     = lx_error->get_text( )
-                                      ix_previous = lx_error->previous ).
+        zcx_abapgit_exception=>raise_with_text( lx_error ).
     ENDTRY.
 
   ENDMETHOD.

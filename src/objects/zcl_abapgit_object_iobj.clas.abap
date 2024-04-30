@@ -2,8 +2,6 @@ CLASS zcl_abapgit_object_iobj DEFINITION PUBLIC INHERITING FROM zcl_abapgit_obje
 
   PUBLIC SECTION.
     INTERFACES zif_abapgit_object.
-    ALIASES mo_files FOR zif_abapgit_object~mo_files.
-
   PROTECTED SECTION.
   PRIVATE SECTION.
     METHODS:
@@ -18,6 +16,20 @@ ENDCLASS.
 
 
 CLASS zcl_abapgit_object_iobj IMPLEMENTATION.
+
+
+  METHOD clear_field.
+
+    FIELD-SYMBOLS: <lg_field> TYPE data.
+
+    ASSIGN COMPONENT iv_fieldname
+           OF STRUCTURE cg_metadata
+           TO <lg_field>.
+    ASSERT sy-subrc = 0.
+
+    CLEAR: <lg_field>.
+
+  ENDMETHOD.
 
 
   METHOD zif_abapgit_object~changed_by.
@@ -41,64 +53,54 @@ CLASS zcl_abapgit_object_iobj IMPLEMENTATION.
 
     CALL FUNCTION 'RSD_IOBJ_GET'
       EXPORTING
-        i_iobjnm  = lv_objna
-        i_objvers = 'A'
+        i_iobjnm         = lv_objna
+        i_objvers        = 'A'
       IMPORTING
-        e_s_viobj = <lg_viobj>.
-
-    ASSIGN COMPONENT 'TSTPNM' OF STRUCTURE <lg_viobj> TO <lg_tstpnm>.
-
-    rv_user = <lg_tstpnm>.
+        e_s_viobj        = <lg_viobj>
+      EXCEPTIONS
+        iobj_not_found   = 1
+        illegal_input    = 2
+        bct_comp_invalid = 3
+        not_authorized   = 4
+        OTHERS           = 5.
+    IF sy-subrc = 0.
+      ASSIGN COMPONENT 'TSTPNM' OF STRUCTURE <lg_viobj> TO <lg_tstpnm>.
+      rv_user = <lg_tstpnm>.
+    ENDIF.
 
   ENDMETHOD.
 
 
   METHOD zif_abapgit_object~delete.
 
-    TYPES: BEGIN OF t_iobj,
+    TYPES: BEGIN OF ty_iobj,
              objnm TYPE c LENGTH 30.
-    TYPES END OF t_iobj.
+    TYPES END OF ty_iobj.
 
-    DATA: lt_iobjname     TYPE STANDARD TABLE OF t_iobj,
-          lv_object       TYPE string,
-          lv_object_class TYPE string,
-          lv_transp_pkg   TYPE abap_bool.
-
-    lv_transp_pkg = zcl_abapgit_factory=>get_sap_package( iv_package )->are_changes_recorded_in_tr_req( ).
+    DATA: lt_iobjname TYPE STANDARD TABLE OF ty_iobj,
+          lv_subrc    TYPE sy-subrc.
 
     APPEND ms_item-obj_name TO lt_iobjname.
 
     CALL FUNCTION 'RSDG_IOBJ_MULTI_DELETE'
       EXPORTING
-        i_t_iobjnm = lt_iobjname.
+        i_t_iobjnm        = lt_iobjname
+        i_check_dependent = abap_false
+        i_manual          = abap_false
+      IMPORTING
+        e_subrc           = lv_subrc.
 
-    IF sy-subrc <> 0.
-      zcx_abapgit_exception=>raise( |Error when deleting infoObject | ).
+    IF lv_subrc <> 0.
+      zcx_abapgit_exception=>raise( |Error when deleting InfoObject { ms_item-obj_name }| ).
     ENDIF.
 
-    IF lv_transp_pkg = abap_true.
+    corr_insert( iv_package ).
 
-      lv_object_class = ms_item-obj_type.
-      lv_object       = ms_item-obj_name.
-
-      CALL FUNCTION 'RS_CORR_INSERT'
-        EXPORTING
-          object              = lv_object
-          object_class        = lv_object_class
-          master_language     = mv_language
-          global_lock         = abap_true
-          mode                = 'D'
-          suppress_dialog     = abap_true
-        EXCEPTIONS
-          cancelled           = 1
-          permission_failure  = 2
-          unknown_objectclass = 3
-          OTHERS              = 4.
-      IF sy-subrc <> 0.
-        zcx_abapgit_exception=>raise_t100( ).
-      ENDIF.
-
-    ENDIF.
+    TRY.
+        " In case of IOBJ dependencies, tadir entry might be leftover so we remove it
+        tadir_delete( ).
+      CATCH zcx_abapgit_exception ##NO_HANDLER.
+    ENDTRY.
 
   ENDMETHOD.
 
@@ -185,32 +187,54 @@ CLASS zcl_abapgit_object_iobj IMPLEMENTATION.
     io_xml->read( EXPORTING iv_name = 'XXL_ATTRIBUTES'
                   CHANGING  cg_data = <lt_xxlattributes> ).
 
+    " Number ranges are local (should not have been serialized)
+    clear_field( EXPORTING iv_fieldname = 'NUMBRANR'
+                 CHANGING  cg_metadata  = <lg_details> ).
+
     TRY.
-
-        CALL FUNCTION 'BAPI_IOBJ_CREATE'
-          EXPORTING
-            details                  = <lg_details>
-          IMPORTING
-            return                   = ls_return
-          TABLES
-            compounds                = <lt_compounds>
-            attributes               = <lt_attributes>
-            navigationattributes     = <lt_navigationattributes>
-            atrnavinfoprovider       = <lt_atrnavinfoprovider>
-            hierarchycharacteristics = <lt_hierarchycharacteristics>
-            elimination              = <lt_elimination>
-            hanafieldsmapping        = <lt_hanafieldsmapping>
-            xxlattributes            = <lt_xxlattributes>.
-
-        IF ls_return-type = 'E'.
-          zcx_abapgit_exception=>raise( |Error when creating iobj: { ls_return-message }| ).
-        ENDIF.
 
         ASSIGN
           COMPONENT 'INFOOBJECT'
           OF STRUCTURE <lg_details>
           TO <lg_infoobject>.
         ASSERT sy-subrc = 0.
+
+        IF zif_abapgit_object~exists( ) = abap_false.
+          CALL FUNCTION 'BAPI_IOBJ_CREATE'
+            EXPORTING
+              details                  = <lg_details>
+            IMPORTING
+              return                   = ls_return
+            TABLES
+              compounds                = <lt_compounds>
+              attributes               = <lt_attributes>
+              navigationattributes     = <lt_navigationattributes>
+              atrnavinfoprovider       = <lt_atrnavinfoprovider>
+              hierarchycharacteristics = <lt_hierarchycharacteristics>
+              elimination              = <lt_elimination>
+              hanafieldsmapping        = <lt_hanafieldsmapping>
+              xxlattributes            = <lt_xxlattributes>.
+        ELSE.
+          CALL FUNCTION 'BAPI_IOBJ_CHANGE'
+            EXPORTING
+              infoobject               = <lg_infoobject>
+              details                  = <lg_details>
+            IMPORTING
+              return                   = ls_return
+            TABLES
+              compounds                = <lt_compounds>
+              attributes               = <lt_attributes>
+              navigationattributes     = <lt_navigationattributes>
+              atrnavinfoprovider       = <lt_atrnavinfoprovider>
+              hierarchycharacteristics = <lt_hierarchycharacteristics>
+              elimination              = <lt_elimination>
+              hanafieldsmapping        = <lt_hanafieldsmapping>
+              xxlattributes            = <lt_xxlattributes>.
+        ENDIF.
+
+        IF ls_return-type = 'E'.
+          zcx_abapgit_exception=>raise( |Error when creating iobj: { ls_return-message }| ).
+        ENDIF.
 
         APPEND <lg_infoobject> TO <lt_infoobjects>.
 
@@ -224,7 +248,7 @@ CLASS zcl_abapgit_object_iobj IMPLEMENTATION.
           zcx_abapgit_exception=>raise( |Error when activating iobj: { ls_return-message }| ).
         ENDIF.
 
-      CATCH  cx_sy_dyn_call_illegal_func.
+      CATCH cx_sy_dyn_call_illegal_func.
         zcx_abapgit_exception=>raise( |Necessary BW function modules not found| ).
     ENDTRY.
 
@@ -237,12 +261,12 @@ CLASS zcl_abapgit_object_iobj IMPLEMENTATION.
 
   METHOD zif_abapgit_object~exists.
 
-    DATA: lv_iobjnm TYPE char30.
+    DATA: lv_iobjnm TYPE c LENGTH 30.
 
     SELECT SINGLE iobjnm
-    FROM ('RSDIOBJ')
-    INTO lv_iobjnm
-    WHERE iobjnm = ms_item-obj_name.
+      FROM ('RSDIOBJ')
+      INTO lv_iobjnm
+      WHERE iobjnm = ms_item-obj_name.
 
     rv_bool = boolc( sy-subrc = 0 ).
 
@@ -254,6 +278,11 @@ CLASS zcl_abapgit_object_iobj IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD zif_abapgit_object~get_deserialize_order.
+    RETURN.
+  ENDMETHOD.
+
+
   METHOD zif_abapgit_object~get_deserialize_steps.
     APPEND zif_abapgit_object=>gc_step_id-abap TO rt_steps.
   ENDMETHOD.
@@ -261,7 +290,6 @@ CLASS zcl_abapgit_object_iobj IMPLEMENTATION.
 
   METHOD zif_abapgit_object~get_metadata.
     rs_metadata = get_metadata( ).
-    rs_metadata-delete_tadir = abap_true.
   ENDMETHOD.
 
 
@@ -304,7 +332,7 @@ CLASS zcl_abapgit_object_iobj IMPLEMENTATION.
 
     DATA: lv_object TYPE eqegraarg.
 
-    lv_object =  ms_item-obj_name.
+    lv_object = ms_item-obj_name.
     OVERLAY lv_object WITH '                                          '.
     lv_object = lv_object && '*'.
 
@@ -315,7 +343,17 @@ CLASS zcl_abapgit_object_iobj IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~jump.
-    zcx_abapgit_exception=>raise( |Jump to infoObjects is not yet supported| ).
+    " Covered by ZCL_ABAPGIT_OBJECTS=>JUMP
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_filename_to_object.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_object_to_filename.
+    RETURN.
   ENDMETHOD.
 
 
@@ -388,7 +426,7 @@ CLASS zcl_abapgit_object_iobj IMPLEMENTATION.
         xxlattributes            = <lt_xxlattributes>.
 
     IF ls_return-type = 'E'.
-      zcx_abapgit_exception=>raise( |Error when geting getails of iobj: { ls_return-message }| ).
+      zcx_abapgit_exception=>raise( |Error getting details of InfoObject: { ls_return-message }| ).
     ENDIF.
 
     clear_field( EXPORTING iv_fieldname = 'TSTPNM'
@@ -398,6 +436,10 @@ CLASS zcl_abapgit_object_iobj IMPLEMENTATION.
                  CHANGING  cg_metadata  = <lg_details> ).
 
     clear_field( EXPORTING iv_fieldname = 'DBROUTID'
+                 CHANGING  cg_metadata  = <lg_details> ).
+
+    " Number ranges are local
+    clear_field( EXPORTING iv_fieldname = 'NUMBRANR'
                  CHANGING  cg_metadata  = <lg_details> ).
 
     io_xml->add( iv_name = 'IOBJ'
@@ -428,19 +470,4 @@ CLASS zcl_abapgit_object_iobj IMPLEMENTATION.
                  ig_data = <lt_xxlattributes> ).
 
   ENDMETHOD.
-
-
-  METHOD clear_field.
-
-    FIELD-SYMBOLS: <lg_field> TYPE data.
-
-    ASSIGN COMPONENT iv_fieldname
-           OF STRUCTURE cg_metadata
-           TO <lg_field>.
-    ASSERT sy-subrc = 0.
-
-    CLEAR: <lg_field>.
-
-  ENDMETHOD.
-
 ENDCLASS.

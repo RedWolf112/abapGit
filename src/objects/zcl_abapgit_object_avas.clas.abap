@@ -26,9 +26,6 @@ CLASS zcl_abapgit_object_avas DEFINITION
         !is_avas TYPE ty_avas
       RAISING
         zcx_abapgit_exception .
-    METHODS insert_links
-      IMPORTING
-        !is_avas TYPE ty_avas .
     METHODS instantiate
       RETURNING
         VALUE(ro_avas) TYPE REF TO cl_cls_attr_value_assignment
@@ -39,7 +36,7 @@ ENDCLASS.
 
 
 
-CLASS ZCL_ABAPGIT_OBJECT_AVAS IMPLEMENTATION.
+CLASS zcl_abapgit_object_avas IMPLEMENTATION.
 
 
   METHOD insert_assignments.
@@ -70,14 +67,6 @@ CLASS ZCL_ABAPGIT_OBJECT_AVAS IMPLEMENTATION.
     IF sy-subrc <> 0.
       zcx_abapgit_exception=>raise( |Error inserting into CLS_ASSIGNMENT| ).
     ENDIF.
-
-  ENDMETHOD.
-
-
-  METHOD insert_links.
-
-* todo, how does links work?
-    RETURN.
 
   ENDMETHOD.
 
@@ -144,6 +133,8 @@ CLASS ZCL_ABAPGIT_OBJECT_AVAS IMPLEMENTATION.
 
     lo_avas->if_pak_wb_object_internal~unlock( ).
 
+    corr_insert( iv_package ).
+
   ENDMETHOD.
 
 
@@ -161,10 +152,10 @@ CLASS ZCL_ABAPGIT_OBJECT_AVAS IMPLEMENTATION.
 
     tadir_insert( iv_package ).
 
-    insert_assignments( ls_avas ).
-    insert_links( ls_avas ).
+    corr_insert( iv_package ).
 
-* corr_insert?
+    insert_assignments( ls_avas ).
+* todo, how does links work?
 
   ENDMETHOD.
 
@@ -181,6 +172,11 @@ CLASS ZCL_ABAPGIT_OBJECT_AVAS IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~get_comparator.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~get_deserialize_order.
     RETURN.
   ENDMETHOD.
 
@@ -212,9 +208,16 @@ CLASS ZCL_ABAPGIT_OBJECT_AVAS IMPLEMENTATION.
 
 
   METHOD zif_abapgit_object~jump.
+  ENDMETHOD.
 
-    zcx_abapgit_exception=>raise( |Todo, AVAS jump| ).
 
+  METHOD zif_abapgit_object~map_filename_to_object.
+    RETURN.
+  ENDMETHOD.
+
+
+  METHOD zif_abapgit_object~map_object_to_filename.
+    RETURN.
   ENDMETHOD.
 
 

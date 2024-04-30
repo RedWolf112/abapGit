@@ -3,30 +3,26 @@ CLASS ltcl_test_base DEFINITION FOR TESTING RISK LEVEL HARMLESS DURATION SHORT A
   PROTECTED SECTION.
     METHODS:
       add_file IMPORTING iv_url     TYPE string
-                         iv_content TYPE string OPTIONAL.
+                         iv_content TYPE string OPTIONAL
+               RAISING   zcx_abapgit_exception.
     DATA:
-      mo_asset_manager TYPE REF TO zcl_abapgit_gui_asset_manager,
+      mi_asset_manager TYPE REF TO zif_abapgit_gui_asset_manager,
       mo_cut           TYPE REF TO zcl_abapgit_gui_css_processor.
   PRIVATE SECTION.
     METHODS:
-      setup,
-      teardown.
+      setup.
 ENDCLASS.
 
 CLASS ltcl_test_base IMPLEMENTATION.
   METHOD setup.
-    CREATE OBJECT mo_asset_manager.
+    mi_asset_manager = zcl_abapgit_gui_asset_manager=>create( ).
     CREATE OBJECT mo_cut
       EXPORTING
-        ii_asset_manager = mo_asset_manager.
-  ENDMETHOD.
-
-  METHOD teardown.
-    FREE: mo_cut, mo_asset_manager.
+        ii_asset_manager = mi_asset_manager.
   ENDMETHOD.
 
   METHOD add_file.
-    mo_asset_manager->register_asset(
+    mi_asset_manager->register_asset(
       iv_url = iv_url
       iv_type = 'text/css'
       iv_inline = iv_content ).
@@ -36,9 +32,9 @@ ENDCLASS.
 CLASS ltcl_single_file DEFINITION FOR TESTING RISK LEVEL HARMLESS DURATION SHORT INHERITING FROM ltcl_test_base.
   PUBLIC SECTION.
     METHODS:
-      test_file_exists FOR TESTING,
+      test_file_exists FOR TESTING RAISING zcx_abapgit_exception,
       test_file_does_not_exist FOR TESTING,
-      test_empty_file FOR TESTING,
+      test_empty_file FOR TESTING RAISING zcx_abapgit_exception,
       test_no_variables FOR TESTING RAISING zcx_abapgit_exception,
       test_simple_variables FOR TESTING RAISING zcx_abapgit_exception,
       test_complex_variables FOR TESTING RAISING zcx_abapgit_exception,
@@ -200,12 +196,51 @@ ENDCLASS.
 CLASS ltcl_multiple_files DEFINITION FOR TESTING RISK LEVEL HARMLESS DURATION SHORT INHERITING FROM ltcl_test_base.
   PUBLIC SECTION.
     METHODS:
+      test_simple FOR TESTING RAISING zcx_abapgit_exception,
       test_overwrite FOR TESTING RAISING zcx_abapgit_exception.
   PROTECTED SECTION.
   PRIVATE SECTION.
 ENDCLASS.
 
 CLASS ltcl_multiple_files IMPLEMENTATION.
+  METHOD test_simple.
+    DATA: lv_file1    TYPE string,
+          lv_file2    TYPE string,
+          lv_expected TYPE string.
+
+    lv_file1 =
+      `:root {\n` &&
+      `  --var2: var(--var3);\n` &&
+      `  --var3: 6;\n` &&
+      `}`.
+    REPLACE ALL OCCURRENCES OF '\n' IN lv_file1 WITH cl_abap_char_utilities=>newline.
+    add_file( iv_url = 'file1.css'
+              iv_content = lv_file1 ).
+    mo_cut->add_file( 'file1.css' ).
+
+    lv_file2 =
+      `:root {\n` &&
+      `  --var3: 19;\n` &&
+      `}`.
+    REPLACE ALL OCCURRENCES OF '\n' IN lv_file2 WITH cl_abap_char_utilities=>newline.
+    add_file( iv_url = 'file2.css'
+              iv_content = lv_file2 ).
+    mo_cut->add_file( 'file2.css' ).
+
+    lv_expected =
+      `:root {\n` &&
+      `  --var2: 19;\n` &&
+      `  --var3: 6;\n` &&
+      `}\n` &&
+      `:root {\n` &&
+      `  --var3: 19;\n` &&
+      `}`.
+    REPLACE ALL OCCURRENCES OF '\n' IN lv_expected WITH cl_abap_char_utilities=>newline.
+
+    cl_abap_unit_assert=>assert_equals( act = mo_cut->process( )
+                                        exp = lv_expected ).
+  ENDMETHOD.
+
   METHOD test_overwrite.
     DATA: lv_file1    TYPE string,
           lv_file2    TYPE string,

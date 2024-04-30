@@ -1,13 +1,8 @@
 INTERFACE zif_abapgit_persist_user
   PUBLIC .
 
-  TYPES tt_favorites TYPE zif_abapgit_persistence=>tt_repo_keys .
+  TYPES ty_favorites TYPE zif_abapgit_persistence=>ty_repo_keys .
 
-  METHODS get_show_order_by
-    RETURNING
-      VALUE(rv_show_order_by) TYPE abap_bool
-    RAISING
-      zcx_abapgit_exception .
   METHODS get_changes_only
     RETURNING
       VALUE(rv_changes_only) TYPE abap_bool
@@ -30,12 +25,17 @@ INTERFACE zif_abapgit_persist_user
       zcx_abapgit_exception .
   METHODS get_favorites
     RETURNING
-      VALUE(rt_favorites) TYPE tt_favorites
+      VALUE(rt_favorites) TYPE ty_favorites
     RAISING
       zcx_abapgit_exception .
   METHODS get_hide_files
     RETURNING
       VALUE(rv_hide) TYPE abap_bool
+    RAISING
+      zcx_abapgit_exception .
+  METHODS get_show_folders
+    RETURNING
+      VALUE(rv_folders) TYPE abap_bool
     RAISING
       zcx_abapgit_exception .
   METHODS get_repo_git_user_email
@@ -122,6 +122,42 @@ INTERFACE zif_abapgit_persist_user
       VALUE(rv_changes_only) TYPE abap_bool
     RAISING
       zcx_abapgit_exception .
+  METHODS get_order_by
+    RETURNING
+      VALUE(rv_order_by) TYPE string
+    RAISING
+      zcx_abapgit_exception.
+  METHODS set_order_by
+    IMPORTING
+      iv_order_by        TYPE string
+    RETURNING
+      VALUE(rv_order_by) TYPE string
+    RAISING
+      zcx_abapgit_exception.
+  METHODS get_order_descending
+    RETURNING
+      VALUE(rv_order_descending) TYPE abap_bool
+    RAISING
+      zcx_abapgit_exception.
+  METHODS set_order_descending
+    IMPORTING
+      iv_order_descending        TYPE abap_bool
+    RETURNING
+      VALUE(rv_order_descending) TYPE abap_bool
+    RAISING
+      zcx_abapgit_exception.
+  METHODS get_diff_first
+    RETURNING
+      VALUE(rv_diff_first) TYPE abap_bool
+    RAISING
+      zcx_abapgit_exception.
+  METHODS set_diff_first
+    IMPORTING
+      iv_diff_first        TYPE abap_bool
+    RETURNING
+      VALUE(rv_diff_first) TYPE abap_bool
+    RAISING
+      zcx_abapgit_exception.
   METHODS toggle_diff_unified
     RETURNING
       VALUE(rv_diff_unified) TYPE abap_bool
@@ -137,6 +173,11 @@ INTERFACE zif_abapgit_persist_user
       VALUE(rv_hide) TYPE abap_bool
     RAISING
       zcx_abapgit_exception .
+  METHODS toggle_show_folders
+    RETURNING
+      VALUE(rv_folders) TYPE abap_bool
+    RAISING
+      zcx_abapgit_exception.
   METHODS get_settings
     RETURNING
       VALUE(rs_user_settings) TYPE zif_abapgit_definitions=>ty_s_user_settings
@@ -147,11 +188,15 @@ INTERFACE zif_abapgit_persist_user
       is_user_settings TYPE zif_abapgit_definitions=>ty_s_user_settings
     RAISING
       zcx_abapgit_exception.
-  METHODS toggle_show_order_by
+  METHODS get_list_settings
     RETURNING
-      VALUE(rv_show_order_by) TYPE abap_bool
+      VALUE(rs_list_settings) TYPE zif_abapgit_definitions=>ty_list_settings
     RAISING
-      zcx_abapgit_exception .
-
+      zcx_abapgit_exception.
+  METHODS set_list_settings
+    IMPORTING
+      is_list_settings TYPE zif_abapgit_definitions=>ty_list_settings
+    RAISING
+      zcx_abapgit_exception.
 
 ENDINTERFACE.
